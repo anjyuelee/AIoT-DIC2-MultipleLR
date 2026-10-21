@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forward Selection 回歸</title>
+  <meta name="description" content="以 Forward Selection 挑選特徵的多元線性回歸，比較不同特徵數 k 的測試集 RMSE 與 R²。">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // 先套用上次選的主題，避免載入時閃一下
+    try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="wrap top">
+    <div>
+      <p class="eyebrow">Multiple Linear Regression</p>
+      <h1>Forward Selection 特徵選擇</h1>
+      <p class="lead">逐步加入特徵，觀察測試集 RMSE 與 R² 如何隨特徵數 k 變化，找出最佳模型。</p>
+    </div>
+    <button id="theme-toggle" class="icon-btn" type="button" aria-label="切換深色模式">
+      <svg class="moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M1.5 12H4M20 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
+    </button>
+  </header>
+
+  <main class="wrap">
+    <section class="card" aria-labelledby="settings-title">
+      <h2 id="settings-title" class="section-title">資料設定</h2>
+      <form id="load-form">
+        <label class="field-label" for="data-url">CSV 網址</label>
+        <div class="input-group">
+          <input id="data-url" type="url" required spellcheck="false" autocomplete="off">
+          <button id="load-btn" class="btn primary" type="submit">載入資料</button>
+        </div>
+      </form>
+      <div class="param-row">
+        <label class="field">
+          <span class="field-label">預測目標（target）</span>
+          <select id="target" disabled></select>
+        </label>
+        <label class="field">
+          <span class="field-label">測試集比例</span>
+          <span class="suffix"><input id="test-ratio" type="number" min="5" max="50" step="5" inputmode="numeric"><span>%</span></span>
+        </label>
+        <label class="field">
+          <span class="field-label">隨機種子（seed）</span>
+          <input id="seed" type="number" min="0" step="1" inputmode="numeric">
+        </label>
+      </div>
+      <div id="data-info" class="data-info" hidden>
+        <p id="data-counts" class="hint"></p>
+        <ul id="column-list" class="chips" aria-label="欄位與型別"></ul>
+      </div>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div id="results" class="results" hidden>
+      <section class="card" aria-labelledby="model-title">
+        <div class="model-head">
+          <div>
+            <h2 id="model-title" class="model-title"></h2>
+            <p class="hint">最佳 k 取 test RMSE 最低者。點選圖上的點或表格任一列，可查看其他 k 的模型。</p>
+          </div>
+          <button id="back-to-best" class="btn ghost" type="button" hidden></button>
+        </div>
+        <dl class="metrics">
+          <div><dt>Test RMSE</dt><dd id="m-rmse"></dd></div>
+          <div><dt>Test R²</dt><dd id="m-r2"></dd></div>
+          <div><dt>使用特徵數</dt><dd id="m-k"></dd></div>
+          <div><dt id="m-vs-all-label">RMSE 較全部特徵</dt><dd id="m-vs-all"></dd></div>
+        </dl>
+        <div class="equation-box">
+          <div class="equation-head">
+            <span class="field-label">回歸方程式（以訓練集 OLS 擬合）</span>
+            <button id="copy-eq" class="btn ghost small" type="button">複製</button>
+          </div>
+          <p id="equation" class="equation"></p>
+        </div>
+      </section>
+
+      <div class="charts">
+        <figure class="card chart-card">
+          <figcaption><span class="chart-title">Test RMSE vs k</span><span class="hint">越低越好</span></figcaption>
+          <div class="chart-box"><canvas id="rmse-chart" role="img" aria-label="Test RMSE 隨特徵數 k 變化的折線圖，數值見下方表格"></canvas></div>
+        </figure>
+        <figure class="card chart-card">
+          <figcaption><span class="chart-title">Test R² vs k</span><span class="hint">越高越好</span></figcaption>
+          <div class="chart-box"><canvas id="r2-chart" role="img" aria-label="Test R² 隨特徵數 k 變化的折線圖，數值見下方表格"></canvas></div>
+        </figure>
+      </div>
+
+      <section class="card table-card" aria-labelledby="table-title">
+        <div class="table-head">
+          <h2 id="table-title" class="section-title">每一步的模型</h2>
+          <p class="hint">外框標籤為該步新加入的特徵</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">k</th>
+                <th scope="col">選到的特徵</th>
+                <th scope="col" class="num">Test RMSE</th>
+                <th scope="col" class="num">較上一步</th>
+                <th scope="col" class="num">Test R²</th>
+              </tr>
+            </thead>
+            <tbody id="steps-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <details class="card method">
+        <summary>方法說明</summary>
+        <ol>
+          <li><b>讀取資料：</b>略過含缺值的列；整欄都是數字的視為數值特徵，其餘視為類別。</li>
+          <li><b>One-hot：</b>類別依字母排序，丟掉第一個作為基準類別（drop first），避免與截距共線。</li>
+          <li><b>切分：</b>以固定 seed（mulberry32 + Fisher–Yates 洗牌）打亂後，依比例切出測試集，筆數無條件進位。</li>
+          <li><b>Forward Selection：</b>從只有截距的模型開始，每一步在剩下的特徵中挑「加入後訓練集 RSS 最小」的那一個，直到全部加入。</li>
+          <li><b>評估：</b>每個 k 以 OLS（含截距）在訓練集擬合，在測試集計算 RMSE 與 R²；test RMSE 最低者為最佳 k，在同一測試集上也就是 R² 最高者。</li>
+        </ol>
+        <p class="hint">註：最佳 k 是依測試集挑出的，嚴謹的做法是另留驗證集或使用交叉驗證。</p>
+      </details>
+    </div>
+  </main>
+
+  <footer class="wrap footer">
+    資料來源：<a id="source-link" target="_blank" rel="noopener"></a> · 所有計算都在瀏覽器內完成
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="config.js"></script>
+  <script src="regression.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
