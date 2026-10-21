@@ -82,12 +82,23 @@ a { color: var(--accent-ink); }
 .wrap { max-width: 1120px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
 
 /* ---------- 頁首 ---------- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 20px;
+}
+.preset-field { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
+.preset-field span { flex: none; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.preset-field select { max-width: 240px; }
+
 .top {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  padding-top: 40px;
+  padding-top: 28px;
   padding-bottom: 24px;
 }
 .eyebrow { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--accent-ink); }

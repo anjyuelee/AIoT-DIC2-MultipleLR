@@ -9,11 +9,17 @@ Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
 $('data-url').value = CONFIG.dataUrl;
 $('test-ratio').value = Math.round(CONFIG.testRatio * 100);
 $('seed').value = CONFIG.seed;
+$('preset').replaceChildren(
+  ...CONFIG.presets.map((p, i) => new Option(p.name, i)),
+  new Option('自訂 CSV 網址', 'custom'),
+);
 
 $('load-form').addEventListener('submit', e => {
   e.preventDefault();
   load();
 });
+$('preset').addEventListener('change', onPresetChange);
+$('data-url').addEventListener('input', syncPreset);
 for (const id of ['target', 'test-ratio', 'seed']) $(id).addEventListener('change', analyze);
 $('back-to-best').addEventListener('click', () => select(state.result.best.k));
 $('copy-eq').addEventListener('click', copyEquation);
@@ -24,8 +30,10 @@ load();
 
 // ---------- 資料流程 ----------
 
-async function load() {
+// preferTarget：切換題目時指定的 target，優先於目前的選擇
+async function load(preferTarget) {
   const url = $('data-url').value.trim();
+  syncPreset();
   setBusy(true);
   try {
     const res = await fetch(url).catch(() => {
@@ -33,7 +41,7 @@ async function load() {
     });
     if (!res.ok) throw new Error(`下載失敗（HTTP ${res.status}），請確認網址是否正確。`);
     const { header, rows } = parseCSV(await res.text());
-    fillTargets(header, rows);
+    fillTargets(header, rows, preferTarget);
     Object.assign(state, { header, rows });
     $('source-link').href = url;
     $('source-link').textContent = decodeURIComponent(url.split('/').pop()) || url;
@@ -45,12 +53,30 @@ async function load() {
   }
 }
 
-// target 下拉只列數值欄；優先保留目前選擇，其次 CONFIG.target，否則取最後一個數值欄
-function fillTargets(header, rows) {
+// 選預設題目：帶入它的網址與 target 後重新載入；選「自訂」則交給使用者輸入網址
+function onPresetChange() {
+  const p = CONFIG.presets[$('preset').value];
+  if (!p) {
+    $('data-url').focus();
+    $('data-url').select();
+    return;
+  }
+  $('data-url').value = p.dataUrl;
+  load(p.target);
+}
+
+// 下拉選單跟著網址欄：網址屬於某個題目就選它，否則顯示「自訂」
+function syncPreset() {
+  const i = CONFIG.presets.findIndex(p => p.dataUrl === $('data-url').value.trim());
+  $('preset').value = i < 0 ? 'custom' : i;
+}
+
+// target 下拉只列數值欄；優先順序：題目指定的 target → 目前選擇 → CONFIG.target → 最後一個數值欄
+function fillTargets(header, rows, preferTarget) {
   const { isNum } = inspect(header, rows);
   const numeric = header.filter((_, c) => isNum[c]);
   if (!numeric.length) throw new Error('資料中沒有數值欄位可當預測目標。');
-  const current = [$('target').value, CONFIG.target].find(n => numeric.includes(n)) ?? numeric[numeric.length - 1];
+  const current = [preferTarget, $('target').value, CONFIG.target].find(n => numeric.includes(n)) ?? numeric[numeric.length - 1];
   $('target').replaceChildren(...numeric.map(n => new Option(n, n, false, n === current)));
   $('target').disabled = false;
 }
@@ -99,6 +125,7 @@ function select(k) {
 
 function setBusy(busy) {
   $('load-btn').disabled = busy;
+  $('preset').disabled = busy;
   $('load-btn').textContent = busy ? '載入中…' : '載入資料';
   $('results').classList.toggle('is-loading', busy);
   if (busy && $('results').hidden) setStatus('loading', '正在載入資料…');
