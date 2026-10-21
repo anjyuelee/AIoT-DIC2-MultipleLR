@@ -1,21 +1,21 @@
 ---
 name: mlr-feature-selection
-description: Forward Selection multiple linear regression: given a CSV URL and a target column, one-hot encode, split train/test, fit OLS for k=1..p and report test RMSE/R² as a static front-end page (line charts, table, regression equation; GitHub Pages ready). Use for forward/stepwise feature selection, comparing regression models by feature count k, or re-running this page on a new dataset.
+description: Feature-selection multiple linear regression page: given a CSV URL and a target column, one-hot encode, split train/test, pick k=1..p feature subsets with Forward SFS, RFE, Lasso, ElasticNet, or Exhaustive search, fit OLS, and report test RMSE/R²/MAE, OLS inference (SE, t, p, CI, VIF, F), test residuals, and a live predictor as a static front-end page (GitHub Pages ready). Use for forward/backward/subset feature selection, comparing selection methods or models by feature count k, or re-running this page on a new dataset.
 ---
 
-# MLR Forward Selection
+# MLR Feature Selection
 
-Build a static front-end page (HTML + JS + Chart.js, no backend): load a CSV → preprocess → Forward Selection → test RMSE/R² for every k → charts, table, regression equation. All computation runs in the browser.
+Build a static front-end page (HTML + JS + Chart.js, no backend): load a CSV → preprocess → five feature-selection methods → test metrics for every (method, k) → charts, tables, coefficient inference, residuals, live predictor. All computation runs in the browser.
 
 ## Reference implementation
 
 The repo root holds the complete implementation; read it before changing anything:
 
-- `config.js`: settings (`dataUrl`, `target`, `testRatio`, `seed`) and `presets`, the datasets offered in the 選擇題目 dropdown
-- `regression.js`: pure computation, no DOM (`parseCSV`, `inspect`, `buildDataset`, `trainTestSplit`, `lstsq`, `forwardSelection`)
+- `config.js`: settings (`dataUrl`, `target`, `testRatio`, `seed`) and `presets`, the datasets offered in the 選擇題目 dropdown (`{ name, dataUrl, target, source }`; `source` is the credit shown in the footer)
+- `regression.js`: pure computation, no DOM: parsing and encoding (`parseCSV`, `inspect`, `buildDataset`, `trainTestSplit`), OLS (`lstsq` returns `{ coef, R, rss }`), selection (`independentFeatures`, `SELECTORS`, `evaluateSubsets`), inference (`olsSummary`, `tPValue`, `tQuantile`, `fPValue`)
 - `app.js`, `index.html`, `style.css`: the UI
 
-**New dataset**: when these files exist, add `{ name, dataUrl, target }` to `presets` in `config.js`; to also make it the page's default, set `dataUrl` and `target` to the same values. Then go to step 6. No column name is hard-coded anywhere.
+**New dataset**: when these files exist, add `{ name, dataUrl, target, source }` to `presets` in `config.js`; to also make it the page's default, set `dataUrl` and `target` to the same values. Then go to step 6. No column name is hard-coded anywhere.
 **From scratch**: follow steps 1–6 to build five files with the same split of responsibilities.
 
 ## Steps
@@ -23,7 +23,7 @@ The repo root holds the complete implementation; read it before changing anythin
 ### 1. Input
 
 - Required: CSV URL and target column; ask the user for whichever is missing. Optional: `testRatio` (default 0.2), `seed` (default 42).
-- Put them in `config.js`, and make them editable on the page too: a URL field, a target dropdown listing numeric columns only, test ratio, and seed. Changing any of the last three recomputes immediately without re-fetching.
+- Put them in `config.js`, and make them editable on the page too: a URL field, a target dropdown listing numeric columns only, a 特徵選擇方法 dropdown (Forward SFS, RFE（Backward）, Lasso, ElasticNet, Exhaustive, 比較全部方法), test ratio, and seed. Changing target, ratio, or seed recomputes without re-fetching; changing the method only re-renders, because `analyze()` runs every method at once.
 - A 選擇題目 dropdown at the very top of the page lists every preset plus 自訂 CSV 網址. Choosing a preset fills in its URL, reloads, and selects its target. The dropdown follows the URL field: it shows the preset whose URL matches, or 自訂 when none does.
 - A browser `fetch` needs CORS: confirm with `curl -sI` that the response carries `access-control-allow-origin` (raw.githubusercontent.com does).
 
@@ -31,48 +31,69 @@ Done when: the CSV is fetched, its header contains the target, and the target co
 
 ### 2. Preprocessing
 
-- Drop rows with any missing value, and show the dropped count on the page.
+- Drop rows with any empty value, and show the dropped count on the page. Only empty strings count as missing (`NA` is a category level, unlike pandas). Keep each kept row's position in the CSV (`ids`) for the residual table.
 - Column types: a column whose every value parses to a finite number is numeric; anything else is categorical.
-- **One-hot, drop first**: sort a categorical column's levels alphabetically, drop the first as the baseline, and name dummies `{column}_{level}`, matching pandas `get_dummies(drop_first=True)`. Each dummy is an independent candidate feature.
+- **One-hot, drop first**: sort a categorical column's levels alphabetically, drop the first as the baseline, and name dummies `{column}_{level}`, matching pandas `get_dummies(drop_first=True)`. Each dummy is an independent candidate feature; record each feature's source column and level (`sources`) so the predictor can map back.
 - **Split**: shuffle with `mulberry32(seed)` + Fisher–Yates; test size is `ceil(n × testRatio)` (same as sklearn). The resulting split differs from sklearn's `random_state`, so numbers are not comparable to a Python notebook.
+- **Independent features**: walk the features in column order and keep one only if the training design (intercept + kept features + it) stays full rank under the QR test in step 3. Constant columns, duplicates, and all-zero training dummies drop out here; state on the page how many were left out. Every method runs on this kept set.
 
 Done when: the feature names match the columns of pandas `get_dummies(drop_first=True)` one for one.
 
-### 3. Forward Selection (k = 1..p)
+### 3. Feature selection (k = 1..p, training set only)
 
-- Start from the intercept-only model. At each step, add the remaining feature that gives the lowest **training RSS**. Selection sees only the training set and the test set is for evaluation only; choosing features by test error is leakage.
-- OLS always includes an intercept and is solved with Householder QR. Skip a candidate that makes the columns linearly dependent (`|R_jj| ≤ 1e-10 × ‖original column‖`); if every remaining candidate is skipped, stop early and state on the page how many features were left out.
-- For each k, record: selected features (in order of addition), coefficients, test RMSE, test R².
+Selection sees only the training set and the test set is for evaluation only; choosing features by test error is leakage. Each method returns one feature subset per k:
 
-Done when: there is one record per k covering 1..p (minus linearly dependent features).
+- **Forward SFS**: start from the intercept-only model; at each step add the remaining feature giving the lowest training RSS. Subsets list features in order of addition.
+- **RFE（Backward）**: start from all features, fit OLS, drop the feature with the smallest `|b_j × sd_j|` (training population sd), repeat. OLS is invariant to affine rescaling, so this equals sklearn `RFE(LinearRegression())` on `StandardScaler`-transformed training X.
+- **Lasso / ElasticNet** (`l1_ratio` 1 / 0.5): standardize training X **and y** (mean, population sd; standardizing y keeps the ElasticNet path independent of the target's units). Solve the regularization path by coordinate descent with warm starts over 200 log-spaced λ from `λ_max = max|zᵀy| / (n × l1_ratio)` down to `1e-4 × λ_max` (sklearn's `lasso_path` / `enet_path` grid), stopping each λ when `max|Δw| < 1e-13` or after 1000 sweeps. Rank features by the first grid index where their coefficient is nonzero, ties by larger `|w|` at that index, then by column index; features that never enter go last. The k-subset is the top k.
+- **Exhaustive**: for each k, the subset of all `C(p, k)` with the lowest training RSS (ties to the lexicographically first). Enumerate depth-first with an incrementally updated Cholesky factor on centered, unit-norm columns (`RSS = Σ(y − ȳ)² − ‖L⁻¹ Xᵀy‖²`); Boston's 8,191 subsets take ~5 ms. Disable the method (dropdown option and comparison) when more than `EXHAUSTIVE_MAX_P = 15` features are kept.
 
-### 4. Metrics, best k, equation
+Then refit every subset by OLS with an intercept, solved with Householder QR (a column is linearly dependent when `|R_jj| ≤ 1e-10 × ‖original column‖`), and record per k: features, coefficients, test RMSE, test R².
 
-- RMSE = `sqrt(mean((y − ŷ)²))` and R² = `1 − SS_res / SS_tot`, both on the test set, with SS_tot around the test-set mean (same as sklearn `r2_score`).
-- Best k = the lowest test RMSE (ties go to the smaller k). On the same test set this is also the highest R², so both charts always agree on the best point.
-- The regression equation uses the selected k's coefficients fitted on the training set: `target = b0 + b1 × x1 − b2 × x2 …`. Format |coefficient| ≥ 1000 with two decimals and thousands separators, otherwise 4 significant digits; write every negative sign, intercept included, as `−` (U+2212).
+Done when: every enabled method has one record per k covering 1..p.
+
+### 4. Metrics, best model, inference, equation
+
+- Test metrics: RMSE = `sqrt(mean((y − ŷ)²))`, R² = `1 − SS_res / SS_tot` with SS_tot around the test-set mean (same as sklearn `r2_score`), MAE = `mean|y − ŷ|`.
+- **Best model**: per method, the lowest test RMSE (ties go to the smaller k); on the same test set this is also the highest R², so both charts agree. In 比較全部方法, the lowest across methods; RMSEs within `1e-9` relative are the same subset reached by different methods, so they tie and go to the earlier method in the dropdown order.
+- **Inference** for the selected model, on the training set, matching statsmodels `OLS`: `df = n − k − 1`, `σ̂² = RSS / df`, `SE_j = σ̂ × ‖row j of R⁻¹‖`, `t = b / SE`, two-sided p from the t distribution, 95% CI `b ± t₀.₉₇₅,df × SE`, Adjusted R² `1 − (1 − R²_train)(n − 1)/df`, F `((SST − RSS)/k) / σ̂²` with its p-value, and VIF_j = `1 / (1 − R²_j)` from regressing feature j on the other selected features with an intercept (1 when k = 1). Distribution functions come from the regularized incomplete beta (continued fraction) and Lanczos ln Γ; the t quantile by bisection. When `df ≤ 0` every inferential value shows `—`.
+- The regression equation uses the selected model's coefficients: `target = b0 + b1 × x1 − b2 × x2 …`. Format |coefficient| ≥ 1000 with two decimals and thousands separators, otherwise 4 significant digits; write every negative sign, intercept and tables included, as `−` (U+2212).
 
 ### 5. UI
 
-- **Two line charts** (Chart.js): Test RMSE vs k and Test R² vs k. A single series needs no legend. Mark the best point in orange with a "best k = n" label placed on the side away from the line (below the point on the RMSE chart, above it on the R² chart). Hover shows a vertical crosshair and a tooltip with the value first and that k's feature list second.
-- **Table**: k, selected features (highlighting the one added at that step), Test RMSE, ΔRMSE vs the previous step (▼ green / ▲ red), Test R²; tag the best row. The table doubles as the accessible equivalent of the charts.
-- **Model card**: the selected k's RMSE, R², feature count, RMSE change vs the all-features model, and the regression equation with a copy button.
-- **Linked selection**: the best k is selected by default; clicking a chart point or a table row switches k; hovering a table row shows that k's tooltip on both charts.
+- **Model card**: title names the method and k. Seven tiles: Test RMSE, Test R², Test MAE, RMSE change vs the all-features model, Adjusted R²（訓練集）, F 統計量（訓練集） with its p-value, and feature count; then the equation with a copy button.
+- **Two line charts** (Chart.js): Test RMSE vs k and Test R² vs k, x axis k = 1..max k.
+  - Single method: one series, no legend; mark the best point in orange with a "最佳 k = n" label on the side away from the line (below on RMSE, above on R²), clamped inside the plot area.
+  - 比較全部方法: one series per method, colored `--series-1..5` by the fixed method order so a disabled Exhaustive never repaints the others; a legend at the bottom with line keys whose click toggles that method on both charts. Orange is series 2, so the best point gets a ring in the text color instead, labeled with the method or "n 個方法相同".
+  - Hover shows a vertical crosshair and a tooltip: the value first, then that k's feature list (single) or every method's value keyed by a line in its color (compare).
+- **Table**, the accessible equivalent of the charts:
+  - Single method: k, selected features (outline the ones not in the previous k's subset), Test RMSE, ΔRMSE vs the previous k (▼ green / ▲ red), Test R²; tag the best row.
+  - 比較全部方法: rows are k, columns are methods, each cell a button showing RMSE and R²; bold each method's lowest RMSE and tag every cell tied with the overall best.
+- **Linked selection**: the mode's best model is selected by default; clicking a chart point, a table row, or a comparison cell selects that (method, k) and updates the model card, the charts' selected-k band, and the three detail cards below; hovering a table row shows that k's tooltip on both charts.
+- **係數估計 table**: intercept plus each feature with estimate, SE, t, p-value (`< 0.0001` floor, `*** / ** / *` at 0.001 / 0.01 / 0.05), 95% CI, VIF (flag ≥ 5 as 偏高); a note with training n, df, and σ̂.
+- **即時預測**: one input per original column the selected model uses, in header order. Numeric: a slider over the training min..max with step `10^floor(log10(range / 200))` (at least 1 for integer columns), synced with a number box, defaulting to the training mean. Categorical: a dropdown of every level, the baseline marked （基準）. The prediction updates on every input and notes extrapolation when a number lies outside the training range. Input values persist across model switches and reset when the data, target, or split changes.
+- **測試集殘差 table**: rank, data row (`第 n 筆`, the 1-based CSV data row), actual, predicted, residual (actual − predicted), % error (`|residual| / |actual|`, `—` when actual is 0), status; sort by |residual| descending, tag 高殘差 when `|residual| > 2σ̂` (training residual standard error), show 10 rows with a toggle for all.
+- **Footer**: the six CRISP-DM phases (商業理解, 資料理解, 資料準備, 建模, 評估, 部署), each mapped to what this page does; the current data source link plus its preset `source` credit; the reference page link.
 - **Theme**: colors are CSS variables on `:root`, with dark values defined under both `prefers-color-scheme: dark` and `[data-theme]`. Chart.js reads its colors from those variables and redraws when the theme changes.
-- No horizontal scrolling at 375px width; the table scrolls inside its own container.
+- No horizontal scrolling at 375px width; tables scroll inside their own containers.
 
 ### 6. Verification
 
-1. **Numbers**: run `config.js` + `regression.js` once in Node via `vm`, printing the train/test indices and every k's result. Redo forward selection with pandas `get_dummies(drop_first=True)` + `numpy.linalg.lstsq` on **the same indices** and compare.
-   Done when: every k's feature order, coefficients (rtol 1e-8: raw-scale features leave the design ill-conditioned, so QR and SVD differ by ~1e-9), RMSE, and R² all match.
-2. **UI**: serve with `python3 -m http.server` and check each of: no console errors, light and dark themes, 375px width, click and hover linking, switching presets, loading a custom URL, and visible errors for a bad URL and a bad target.
+1. **Numbers**: run `config.js` + `regression.js` in Node via `vm`, dumping the train/test indices, `ids`, the kept features, and for every method and k: features, coefficients, test predictions and metrics, and `olsSummary`. In Python (pandas, numpy, scikit-learn, statsmodels) redo on **the same indices**: Forward by `numpy.linalg.lstsq` RSS, RFE by `sklearn.feature_selection.RFE` on `StandardScaler` X, Lasso / ElasticNet by `lasso_path` / `enet_path` (`eps=1e-4`, `alphas=200`, standardized X and y, tight `tol`) with the same ranking rule, Exhaustive by `itertools.combinations`, and inference by `statsmodels` `OLS` + `variance_inflation_factor`.
+   Done when: every method's subsets match for every k (in order for Forward, Lasso, ElasticNet), and coefficients (rtol 1e-8: raw-scale features leave the design ill-conditioned, so QR and SVD differ by ~1e-9), RMSE, R², MAE (1e-9), SE, t, CI, VIF, F (1e-7), and p-values (1e-6) all match, at seed 42 / 20% and at a few other seeds and ratios.
+2. **UI**: serve with `python3 -m http.server` and check each of: no console errors, light and dark themes, 375px width, click and hover linking in both single and compare modes, legend toggling, the predictor with a categorical column, switching presets, loading a custom URL (one with more than 15 features disables Exhaustive), and visible errors for a bad URL and a bad target.
 
-With seed 42 and 20% test, the presets must give: 50 Startups (target `Profit`) best k = 2 (R&D Spend, Marketing Spend), test RMSE 9,304.12, R² 0.9464; Boston Housing (target `medv`) best k = 11, test RMSE 4.05, R² 0.7462. A different result means the split or selection logic has changed.
+With seed 42 and 20% test, the presets must give:
+
+- 50 Startups (target `Profit`): every method's best is k = 2 (R&D Spend, Marketing Spend), test RMSE 9,304.12, R² 0.9464, MAE 7,736.85, Adjusted R² 0.9477, F 354.50.
+- Boston Housing (target `medv`): every method's best is k = 11, test RMSE 4.05, R² 0.7462, Adjusted R² 0.7297, F 99.89. At k = 3 RFE picks rm, dis, lstat (RMSE 4.82) while the others pick rm, ptratio, lstat (4.33). Lasso ranks lstat, rm, ptratio, b, chas, dis, nox, zn, crim, rad, tax, indus, age; ElasticNet ranks lstat, rm, ptratio, b, chas, nox, dis, crim, zn, rad, tax, indus, age.
+
+A different result means the split, selection, or ranking logic has changed.
 
 ## Conventions
 
 - Use classic `<script>` tags rather than ES modules, so opening `index.html` via `file://` still works.
 - Load Chart.js from cdnjs pinned to an exact version (currently 4.4.1).
-- Insert CSV-derived strings (column names, category levels) into the DOM only via `textContent` / `createElement`, to prevent XSS.
+- Insert CSV-derived strings (column names, category levels) into the DOM only via `textContent` / `createElement` / `new Option`, to prevent XSS.
 - UI copy and code comments are in Traditional Chinese.
 - Deploy: push to GitHub → Settings → Pages → `main` branch, `/ (root)`.

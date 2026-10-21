@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Forward Selection 回歸</title>
-  <meta name="description" content="以 Forward Selection 挑選特徵的多元線性回歸，比較不同特徵數 k 的測試集 RMSE 與 R²。">
+  <title>MLR 特徵選擇</title>
+  <meta name="description" content="以五種特徵選擇方法建立多元線性回歸，比較不同特徵數 k 的測試集 RMSE 與 R²，並檢視係數檢定、殘差與即時預測。">
   <link rel="stylesheet" href="style.css">
   <script>
     // 先套用上次選的主題，避免載入時閃一下
@@ -26,8 +26,8 @@
   <header class="wrap top">
     <div>
       <p class="eyebrow">Multiple Linear Regression</p>
-      <h1>Forward Selection 特徵選擇</h1>
-      <p class="lead">逐步加入特徵，觀察測試集 RMSE 與 R² 如何隨特徵數 k 變化，找出最佳模型。</p>
+      <h1>多元線性回歸：特徵選擇</h1>
+      <p class="lead">以五種方法挑選特徵，觀察測試集 RMSE 與 R² 如何隨特徵數 k 變化，再檢視所選模型的係數檢定、殘差與即時預測。</p>
     </div>
   </header>
 
@@ -42,9 +42,13 @@
         </div>
       </form>
       <div class="param-row">
-        <label class="field">
+        <label class="field wide">
           <span class="field-label">預測目標（target）</span>
           <select id="target" disabled></select>
+        </label>
+        <label class="field wide">
+          <span class="field-label">特徵選擇方法</span>
+          <select id="method"></select>
         </label>
         <label class="field">
           <span class="field-label">測試集比例</span>
@@ -68,15 +72,18 @@
         <div class="model-head">
           <div>
             <h2 id="model-title" class="model-title"></h2>
-            <p class="hint">最佳 k 取 test RMSE 最低者。點選圖上的點或表格任一列，可查看其他 k 的模型。</p>
+            <p class="hint">最佳模型取 test RMSE 最低者。點選圖上的點或表格，可查看其他模型。</p>
           </div>
           <button id="back-to-best" class="btn ghost" type="button" hidden></button>
         </div>
         <dl class="metrics">
           <div><dt>Test RMSE</dt><dd id="m-rmse"></dd></div>
           <div><dt>Test R²</dt><dd id="m-r2"></dd></div>
-          <div><dt>使用特徵數</dt><dd id="m-k"></dd></div>
+          <div><dt>Test MAE</dt><dd id="m-mae"></dd></div>
           <div><dt id="m-vs-all-label">RMSE 較全部特徵</dt><dd id="m-vs-all"></dd></div>
+          <div><dt>Adjusted R²<span class="dt-note">訓練集</span></dt><dd id="m-adj"></dd></div>
+          <div><dt>F 統計量<span class="dt-note">訓練集</span></dt><dd id="m-f"></dd></div>
+          <div><dt>使用特徵數</dt><dd id="m-k"></dd></div>
         </dl>
         <div class="equation-box">
           <div class="equation-head">
@@ -87,7 +94,7 @@
         </div>
       </section>
 
-      <div class="charts">
+      <div id="charts" class="charts">
         <figure class="card chart-card">
           <figcaption><span class="chart-title">Test RMSE vs k</span><span class="hint">越低越好</span></figcaption>
           <div class="chart-box"><canvas id="rmse-chart" role="img" aria-label="Test RMSE 隨特徵數 k 變化的折線圖，數值見下方表格"></canvas></div>
@@ -100,23 +107,76 @@
 
       <section class="card table-card" aria-labelledby="table-title">
         <div class="table-head">
-          <h2 id="table-title" class="section-title">每一步的模型</h2>
-          <p class="hint">外框標籤為該步新加入的特徵</p>
+          <h2 id="table-title" class="section-title"></h2>
+          <p id="table-hint" class="hint"></p>
+        </div>
+        <div class="table-wrap">
+          <table class="interactive">
+            <thead id="steps-head"></thead>
+            <tbody id="steps-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card table-card" aria-labelledby="coef-title">
+        <div class="table-head">
+          <h2 id="coef-title" class="section-title">係數估計（訓練集 OLS）</h2>
+          <p id="coef-note" class="hint"></p>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th scope="col">k</th>
-                <th scope="col">選到的特徵</th>
-                <th scope="col" class="num">Test RMSE</th>
-                <th scope="col" class="num">較上一步</th>
-                <th scope="col" class="num">Test R²</th>
+                <th scope="col">變數</th>
+                <th scope="col" class="num">估計值</th>
+                <th scope="col" class="num">標準誤</th>
+                <th scope="col" class="num">t 值</th>
+                <th scope="col" class="num">p-value</th>
+                <th scope="col" class="num">95% 信賴區間</th>
+                <th scope="col" class="num">VIF</th>
               </tr>
             </thead>
-            <tbody id="steps-body"></tbody>
+            <tbody id="coef-body"></tbody>
           </table>
         </div>
+        <p class="hint table-foot">*** p &lt; 0.001、** p &lt; 0.01、* p &lt; 0.05。VIF ≥ 5 表示與其他特徵的共線性偏高。</p>
+      </section>
+
+      <section class="card" aria-labelledby="predict-title">
+        <h2 id="predict-title" class="section-title">即時預測</h2>
+        <p class="hint">輸入欄位依目前模型用到的特徵產生，滑桿範圍為訓練集的最小值到最大值。</p>
+        <div class="predict-grid">
+          <div id="predict-inputs" class="predict-inputs"></div>
+          <div class="predict-output">
+            <span id="predict-label" class="field-label"></span>
+            <output id="predict-value" class="predict-value" for="predict-inputs" aria-live="polite"></output>
+            <p id="predict-note" class="hint"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card table-card" aria-labelledby="resid-title">
+        <div class="table-head">
+          <h2 id="resid-title" class="section-title">測試集殘差</h2>
+          <p id="resid-note" class="hint"></p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col" class="num">排名</th>
+                <th scope="col">資料列</th>
+                <th scope="col" class="num">實際值</th>
+                <th scope="col" class="num">預測值</th>
+                <th scope="col" class="num">殘差</th>
+                <th scope="col" class="num">% 誤差</th>
+                <th scope="col">狀態</th>
+              </tr>
+            </thead>
+            <tbody id="resid-body"></tbody>
+          </table>
+        </div>
+        <div class="table-foot"><button id="resid-toggle" class="btn ghost small" type="button"></button></div>
       </section>
 
       <details class="card method">
@@ -125,16 +185,41 @@
           <li><b>讀取資料：</b>略過含缺值的列；整欄都是數字的視為數值特徵，其餘視為類別。</li>
           <li><b>One-hot：</b>類別依字母排序，丟掉第一個作為基準類別（drop first），避免與截距共線。</li>
           <li><b>切分：</b>以固定 seed（mulberry32 + Fisher–Yates 洗牌）打亂後，依比例切出測試集，筆數無條件進位。</li>
-          <li><b>Forward Selection：</b>從只有截距的模型開始，每一步在剩下的特徵中挑「加入後訓練集 RSS 最小」的那一個，直到全部加入。</li>
-          <li><b>評估：</b>每個 k 以 OLS（含截距）在訓練集擬合，在測試集計算 RMSE 與 R²；test RMSE 最低者為最佳 k，在同一測試集上也就是 R² 最高者。</li>
+          <li><b>特徵選擇（只用訓練集）：</b>先剔除與前面欄位線性相依的特徵，再以下列方法產生 k = 1…p 的特徵子集：
+            <ul>
+              <li><b>Forward SFS：</b>從只有截距開始，每一步加入讓訓練集 RSS 最小的特徵。</li>
+              <li><b>RFE（Backward）：</b>從全部特徵開始，每次刪掉標準化係數絕對值最小的特徵。</li>
+              <li><b>Lasso：</b>X、y 標準化後沿 L1 正則化路徑（λ 由大到小），依特徵第一次出現非零係數的順序排名。</li>
+              <li><b>ElasticNet：</b>同 Lasso，但懲罰項為 L1 與 L2 各半（l1_ratio = 0.5）。</li>
+              <li><b>Exhaustive：</b>每個 k 列舉所有組合，取訓練集 RSS 最小者（特徵超過 15 個時停用）。</li>
+            </ul>
+          </li>
+          <li><b>評估：</b>每個子集以 OLS（含截距）在訓練集擬合，在測試集計算 RMSE、R²、MAE；test RMSE 最低者為最佳模型。</li>
+          <li><b>統計推論：</b>係數表、Adjusted R² 與 F 檢定都是訓練集 OLS 的結果（同 statsmodels）；VIF = 1 / (1 − R²ⱼ)，R²ⱼ 為該特徵對其餘特徵回歸的 R²。</li>
         </ol>
-        <p class="hint">註：最佳 k 是依測試集挑出的，嚴謹的做法是另留驗證集或使用交叉驗證。</p>
+        <p class="hint">註：最佳模型是依測試集挑出的，嚴謹的做法是另留驗證集或使用交叉驗證。</p>
       </details>
     </div>
   </main>
 
   <footer class="wrap footer">
-    資料來源：<a id="source-link" target="_blank" rel="noopener"></a> · 所有計算都在瀏覽器內完成
+    <section aria-labelledby="crisp-title">
+      <h2 id="crisp-title" class="footer-title">CRISP-DM 流程</h2>
+      <ol class="crisp">
+        <li><b>商業理解</b>確立要預測的目標（target）與成功標準：測試集 RMSE 越低越好。</li>
+        <li><b>資料理解</b>讀取 CSV，檢視筆數、欄位型別與缺值（見「資料設定」）。</li>
+        <li><b>資料準備</b>略過缺值列、類別欄 one-hot（drop first），以固定 seed 切分訓練集與測試集。</li>
+        <li><b>建模</b>以五種方法挑出 k = 1…p 的特徵子集，各自在訓練集以 OLS 擬合。</li>
+        <li><b>評估</b>比較測試集 RMSE、R²、MAE，並檢查係數顯著性、VIF 與測試集殘差。</li>
+        <li><b>部署</b>以純前端靜態網頁發布（可部署到 GitHub Pages），用即時預測器套用模型。</li>
+      </ol>
+    </section>
+    <section aria-labelledby="source-title">
+      <h2 id="source-title" class="footer-title">資料來源</h2>
+      <p>目前資料：<a id="source-link" target="_blank" rel="noopener"></a><span id="source-credit"></span></p>
+      <p>功能參考：<a href="https://huanchen1107.github.io/AIoT-DIC2-MultipleLR/" target="_blank" rel="noopener">50 Startups Multiple Linear Regression Explorer</a></p>
+      <p>所有計算都在瀏覽器內完成。</p>
+    </section>
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
