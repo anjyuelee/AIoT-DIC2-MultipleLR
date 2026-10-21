@@ -11,11 +11,11 @@ Build a static front-end page (HTML + JS + Chart.js, no backend): load a CSV →
 
 The repo root holds the complete implementation; read it before changing anything:
 
-- `config.js`: settings (`dataUrl`, `target`, `testRatio`, `seed`)
+- `config.js`: settings (`dataUrl`, `target`, `testRatio`, `seed`) and `presets`, the datasets offered in the 選擇題目 dropdown
 - `regression.js`: pure computation, no DOM (`parseCSV`, `inspect`, `buildDataset`, `trainTestSplit`, `lstsq`, `forwardSelection`)
 - `app.js`, `index.html`, `style.css`: the UI
 
-**New dataset**: when these files exist, change only `dataUrl` and `target` in `config.js`, then go to step 6. No column name is hard-coded anywhere.
+**New dataset**: when these files exist, add `{ name, dataUrl, target }` to `presets` in `config.js`; to also make it the page's default, set `dataUrl` and `target` to the same values. Then go to step 6. No column name is hard-coded anywhere.
 **From scratch**: follow steps 1–6 to build five files with the same split of responsibilities.
 
 ## Steps
@@ -24,6 +24,7 @@ The repo root holds the complete implementation; read it before changing anythin
 
 - Required: CSV URL and target column; ask the user for whichever is missing. Optional: `testRatio` (default 0.2), `seed` (default 42).
 - Put them in `config.js`, and make them editable on the page too: a URL field, a target dropdown listing numeric columns only, test ratio, and seed. Changing any of the last three recomputes immediately without re-fetching.
+- A 選擇題目 dropdown at the very top of the page lists every preset plus 自訂 CSV 網址. Choosing a preset fills in its URL, reloads, and selects its target. The dropdown follows the URL field: it shows the preset whose URL matches, or 自訂 when none does.
 - A browser `fetch` needs CORS: confirm with `curl -sI` that the response carries `access-control-allow-origin` (raw.githubusercontent.com does).
 
 Done when: the CSV is fetched, its header contains the target, and the target column is entirely numeric.
@@ -64,9 +65,9 @@ Done when: there is one record per k covering 1..p (minus linearly dependent fea
 
 1. **Numbers**: run `config.js` + `regression.js` once in Node via `vm`, printing the train/test indices and every k's result. Redo forward selection with pandas `get_dummies(drop_first=True)` + `numpy.linalg.lstsq` on **the same indices** and compare.
    Done when: every k's feature order, coefficients (rtol 1e-9), RMSE, and R² all match.
-2. **UI**: serve with `python3 -m http.server` and check each of: no console errors, light and dark themes, 375px width, click and hover linking, and visible errors for a bad URL and a bad target.
+2. **UI**: serve with `python3 -m http.server` and check each of: no console errors, light and dark themes, 375px width, click and hover linking, switching presets, loading a custom URL, and visible errors for a bad URL and a bad target.
 
-The default data (50_Startups.csv, target `Profit`, seed 42, 20% test) must give: best k = 2 (R&D Spend, Marketing Spend), test RMSE 9,304.12, R² 0.9464. A different result means the split or selection logic has changed.
+With seed 42 and 20% test, the presets must give: 50 Startups (target `Profit`) best k = 2 (R&D Spend, Marketing Spend), test RMSE 9,304.12, R² 0.9464; Boston Housing (target `medv`) best k = 11, test RMSE 4.05, R² 0.7462. A different result means the split or selection logic has changed.
 
 ## Conventions
 
