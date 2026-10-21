@@ -64,7 +64,7 @@ Done when: there is one record per k covering 1..p (minus linearly dependent fea
 ### 6. Verification
 
 1. **Numbers**: run `config.js` + `regression.js` once in Node via `vm`, printing the train/test indices and every k's result. Redo forward selection with pandas `get_dummies(drop_first=True)` + `numpy.linalg.lstsq` on **the same indices** and compare.
-   Done when: every k's feature order, coefficients (rtol 1e-9), RMSE, and R² all match.
+   Done when: every k's feature order, coefficients (rtol 1e-8: raw-scale features leave the design ill-conditioned, so QR and SVD differ by ~1e-9), RMSE, and R² all match.
 2. **UI**: serve with `python3 -m http.server` and check each of: no console errors, light and dark themes, 375px width, click and hover linking, switching presets, loading a custom URL, and visible errors for a bad URL and a bad target.
 
 With seed 42 and 20% test, the presets must give: 50 Startups (target `Profit`) best k = 2 (R&D Spend, Marketing Spend), test RMSE 9,304.12, R² 0.9464; Boston Housing (target `medv`) best k = 11, test RMSE 4.05, R² 0.7462. A different result means the split or selection logic has changed.
