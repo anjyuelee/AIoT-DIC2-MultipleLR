@@ -1,19 +1,32 @@
-// 畫面：讀設定 → 抓資料 → 計算 → 畫圖與表格；選取的模型（方法 + k）會同步到模型卡、圖表、表格與下方細節
+// 畫面：讀設定 → 抓資料 → 計算 → 畫圖與表格；選取的模型（方法 + k）會同步到圖表、表格與右側的模型細節
 const $ = id => document.getElementById(id);
 const charts = {};
-const state = { header: null, rows: null, result: null, sel: null, model: null, inputs: {}, showAllResiduals: false };
+const state = {
+  header: null, rows: null, result: null, sel: null, model: null, inputs: {}, showAllResiduals: false,
+  hidden: new Set(),
+};
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
-// 圖表顏色依這裡的順序對應 --series-1..5，不隨顯示的方法數改變
+// 圖表顏色依這裡的順序對應 --series-1..5，不隨顯示的方法數改變；point / glyph 是比較圖的點形狀與圖例符號
 const METHODS = [
-  { key: 'forward', name: 'Forward SFS' },
-  { key: 'rfe', name: 'RFE（Backward）' },
-  { key: 'lasso', name: 'Lasso' },
-  { key: 'enet', name: 'ElasticNet' },
-  { key: 'exhaustive', name: 'Exhaustive' },
+  { key: 'forward', name: 'Forward SFS', point: 'circle', glyph: '●' },
+  { key: 'rfe', name: 'RFE（Backward）', point: 'triangle', glyph: '▲' },
+  { key: 'lasso', name: 'Lasso', point: 'rect', glyph: '■' },
+  { key: 'enet', name: 'ElasticNet', point: 'crossRot', glyph: '✕' },
+  { key: 'exhaustive', name: 'Exhaustive', point: 'cross', glyph: '+' },
 ];
+// 兩張圖各自的指標；below：最佳點的標籤放在點的下方（RMSE 的最佳點是最低點）
+const METRICS = {
+  rmse: { label: 'Test RMSE', fmt: fmtNum, below: true },
+  r2: { label: 'Test R²', fmt: v => v.toFixed(4), below: false },
+};
 const RESIDUAL_ROWS = 10;
 
-Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+Chart.defaults.font.family = getComputedStyle(document.documentElement).getPropertyValue('--font').trim();
+Chart.defaults.font.size = 11;
+// 網頁字型載入前畫的圖會用後備字型，載入後重畫一次
+document.fonts?.ready.then(() => {
+  if (state.result && !$('results').hidden) drawCharts();
+});
 
 $('data-url').value = CONFIG.dataUrl;
 $('test-ratio').value = Math.round(CONFIG.testRatio * 100);
@@ -163,6 +176,7 @@ function onMethodChange() {
 const isCompare = () => $('method').value === 'all';
 const modeMethods = () => (isCompare() ? state.result.methods : [$('method').value]);
 const methodName = key => METHODS.find(m => m.key === key).name;
+const seriesVar = key => `--series-${METHODS.findIndex(m => m.key === key) + 1}`;
 const stepOf = (method, k) => state.result.runs[method].steps.find(s => s.k === k);
 // 不同方法選到同一組特徵時，RMSE 只差在浮點誤差，視為相同
 const sameRmse = (a, b) => Math.abs(a - b) <= 1e-9 * Math.abs(b);
@@ -183,7 +197,7 @@ function select(method, k) {
   Object.values(charts).forEach(c => c.draw());
 }
 
-// 切換選取的模型：算出它的統計量與測試集預測，更新模型卡與下方細節
+// 切換選取的模型：算出它的統計量與測試集預測，更新右側的模型細節
 function showModel(method, k) {
   const { Xtr, ytr, Xte } = state.result;
   const s = stepOf(method, k);
@@ -214,6 +228,7 @@ function setStatus(kind = '', msg = '') {
 function showError(msg) {
   setStatus('error', msg);
   $('results').hidden = true;
+  $('hero').hidden = true;
   $('data-info').hidden = true;
 }
 
@@ -225,6 +240,7 @@ function render() {
   showModel(b.method, b.k);
   renderTable();
   $('results').hidden = false;
+  $('hero').hidden = false;
   drawCharts();
 }
 
@@ -248,11 +264,18 @@ function renderDataInfo() {
       : '數值';
     return el('li', h === target ? 'chip target' : 'chip', el('b', '', h), el('span', '', type));
   }));
+  $('column-count').textContent = `${state.header.length} 欄`;
+  $('n-total').textContent = data.y.length;
+  $('n-features').textContent = `${data.names.length} 個候選特徵`;
+  $('split-train').textContent = split.train.length;
+  $('split-test').textContent = split.test.length;
+  $('split-bar').style.width = `${(split.test.length / data.y.length) * 100}%`;
+  $('split-note').textContent = `測試集 ${$('test-ratio').value}% · seed ${$('seed').value}`;
   $('data-info').hidden = false;
 }
 
 function renderModel() {
-  const { data, target, yte, runs } = state.result;
+  const { data, target, ytr, yte, runs } = state.result;
   const s = state.model, { stats } = s;
   const best = modeBest();
   const isBest = best.method === s.method && best.k === s.k;
@@ -260,19 +283,28 @@ function renderModel() {
   const label = `${methodName(s.method)}，k = ${s.k}`;
 
   $('model-title').textContent = isBest ? `最佳模型：${label}` : `${label} 的模型`;
-  $('model-title').classList.toggle('is-best', isBest);
+  $('hero-sub').textContent = `用 ${s.k} / ${data.names.length} 個特徵，Test RMSE ${fmtNum(s.rmse)}`;
   $('back-to-best').hidden = isBest;
   $('back-to-best').textContent = `回到最佳：${methodName(best.method)}，k = ${best.k}`;
 
   $('m-rmse').textContent = fmtNum(s.rmse);
   $('m-r2').textContent = s.r2.toFixed(4);
   $('m-mae').textContent = fmtNum(mae(yte, s.pred));
+  $('m-n-test').textContent = yte.length;
   $('m-adj').textContent = dash(stats.adjR2, v => v.toFixed(4));
-  $('m-f').replaceChildren(dash(stats.F, fmtNum), el('span', 'dd-sub', fmtP(stats.Fp, 'p ')));
+  $('m-f').textContent = dash(stats.F, fmtNum);
+  $('m-fp').textContent = fmtP(stats.Fp);
+  $('m-n-train').textContent = ytr.length;
+  $('m-df').textContent = stats.df;
+  $('m-sigma').textContent = dash(stats.sigma, fmtCoef);
   $('m-k').textContent = `${s.k} / ${data.names.length}`;
+  $('k-dots').replaceChildren(...data.names.map((_, i) => el('i', i < s.k ? 'on' : '')));
+  // R² 可能為負，環形只畫 0–100% 的部分，文字照實顯示
+  $('donut').style.setProperty('--p', Math.min(100, Math.max(0, s.r2 * 100)));
+  $('donut-value').textContent = `${(s.r2 * 100).toFixed(1)}%`;
+  $('donut').setAttribute('aria-label', `Test R² ${s.r2.toFixed(4)}`);
   $('m-vs-all-label').textContent = `RMSE 較全部 ${full.k} 個特徵`;
   if (s.k === full.k) {
-    $('m-vs-all').className = '';
     $('m-vs-all').textContent = '—';
   } else {
     setDelta($('m-vs-all'), ((s.rmse - full.rmse) / full.rmse) * 100, v => `${Math.abs(v).toFixed(1)}%`);
@@ -289,11 +321,16 @@ function renderModel() {
 
 function renderTable() {
   const compare = isCompare();
-  $('table-title').textContent = compare ? '各方法比較' : '每個 k 的模型';
-  $('table-hint').textContent = compare
-    ? '每格為 Test RMSE 與 R²，點選即可查看該模型'
-    : '外框標籤為比上一個 k 新加入的特徵';
-  $('steps-body').closest('table').classList.toggle('compare', compare);
+  $('table-title').textContent = compare ? '各方法比較' : '每個 k 選到的特徵';
+  if (compare) $('table-hint').textContent = '每格左為 Test RMSE、右為 Test R²；粗體為該方法的最佳 k';
+  else {
+    $('table-hint').replaceChildren(
+      el('span', 'key', el('i', 'in'), '已選入'),
+      el('span', 'key', el('i', 'in new'), '比上一個 k 新加入'),
+    );
+  }
+  $('steps').classList.toggle('compare', compare);
+  $('steps').classList.toggle('matrix', !compare);
   if (compare) renderCompareTable();
   else renderStepsTable();
   markSelected();
@@ -307,21 +344,31 @@ function setHead(...cols) {
   })));
 }
 
+// 特徵納入矩陣：列為 k、欄為特徵（依第一次被選入的順序排列），方塊標出每個 k 選到哪些特徵
 function renderStepsTable() {
   const { data, runs } = state.result;
   const method = $('method').value;
   const { steps, best } = runs[method];
-  setHead(['k'], ['選到的特徵'], ['Test RMSE', 'num'], ['較上一步', 'num'], ['Test R²', 'num']);
+  const order = [...new Set(steps.flatMap(s => s.features))];
+  setHead(['k'], ['Test RMSE', 'num'], ['較上一步', 'num'], ['Test R²', 'num'], ...order.map(f => {
+    const name = el('span', '', data.names[f]);
+    name.title = data.names[f];
+    return [name, 'fh'];
+  }), ['', 'fill']);
   $('steps-body').replaceChildren(...steps.map((s, i) => {
     const k = el('td', 'k-cell', String(s.k));
     if (s === best) k.append(el('span', 'best-tag', '最佳'));
-    const prev = new Set(i ? steps[i - 1].features : []);
-    const feats = el('td', 'features', ...s.features.map(f =>
-      el('span', prev.has(f) ? 'feat' : 'feat new', data.names[f])));
+    k.append(el('span', 'sr', `，特徵：${s.features.map(f => data.names[f]).join('、')}`));
+    const has = new Set(s.features), prev = new Set(i ? steps[i - 1].features : []);
+    const marks = order.map(f => {
+      const td = el('td', 'm', el('i', !has.has(f) ? '' : prev.has(f) ? 'in' : 'in new'));
+      td.setAttribute('aria-hidden', 'true');
+      return td;
+    });
     const delta = el('td', 'num', '—');
     if (i) setDelta(delta, s.rmse - steps[i - 1].rmse, v => fmtNum(Math.abs(v)));
 
-    const tr = el('tr', '', k, feats, el('td', 'num', fmtNum(s.rmse)), delta, el('td', 'num', s.r2.toFixed(4)));
+    const tr = el('tr', '', k, el('td', 'num', fmtNum(s.rmse)), delta, el('td', 'num', s.r2.toFixed(4)), ...marks, el('td', 'fill'));
     tr.tabIndex = 0;
     tr.dataset.k = s.k;
     tr.addEventListener('click', () => select(method, s.k));
@@ -350,7 +397,7 @@ function renderCompareTable() {
     const cells = methods.map(m => {
       const s = stepOf(m, k);
       if (!s) return el('td', 'num', '—');
-      const btn = el('button', 'cell-btn', el('b', '', fmtNum(s.rmse)), el('span', '', `R² ${s.r2.toFixed(4)}`));
+      const btn = el('button', 'cell-btn', el('b', '', fmtNum(s.rmse)), el('span', '', s.r2.toFixed(4)));
       const isBest = sameRmse(s.rmse, best.rmse);
       if (isBest) btn.append(el('span', 'best-tag', '最佳'));
       btn.type = 'button';
@@ -403,9 +450,8 @@ function peek(k) {
 }
 
 function renderCoefs() {
-  const { data, ytr } = state.result;
+  const { data } = state.result;
   const { features, stats } = state.model;
-  $('coef-note').textContent = `訓練集 n = ${ytr.length}，殘差自由度 ${stats.df}，殘差標準誤 σ̂ = ${dash(stats.sigma, fmtCoef)}`;
   $('coef-body').replaceChildren(...stats.terms.map((t, i) => {
     const name = el('th', '', i ? data.names[features[i - 1]] : '截距（Intercept）');
     name.scope = 'row';
@@ -507,6 +553,19 @@ function renderResiduals() {
   const rows = yte.map((y, i) => ({ id: data.ids[split.test[i]] + 1, y, p: pred[i], r: y - pred[i] }))
     .sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
   const high = rows.filter(r => Math.abs(r.r) > limit).length;
+  $('resid-count').hidden = !high;
+  $('resid-count').textContent = `${high} 筆高殘差`;
+
+  // 殘差條碼依測試集原本順序，高度以 max(|殘差|, 2σ̂) 為滿格
+  const resid = yte.map((y, i) => y - pred[i]);
+  const scale = Math.max(...resid.map(Math.abs), Number.isFinite(limit) ? limit : 0) || 1;
+  $('resid-strip').style.setProperty('--t', Number.isFinite(limit) ? (limit / scale) * 100 : 200);
+  $('resid-strip').setAttribute('aria-label', `${resid.length} 筆測試集殘差的分布，詳見下表`);
+  $('resid-strip').replaceChildren(...resid.map(r => {
+    const bar = el('i', `${r >= 0 ? 'up' : 'down'}${Math.abs(r) > limit ? ' high' : ''}`);
+    bar.style.setProperty('--h', (Math.abs(r) / scale) * 100);
+    return bar;
+  }));
   $('resid-note').textContent = Number.isFinite(limit)
     ? `依 |殘差| 由大到小排序；|殘差| > 2σ̂ = ${fmtCoef(limit)} 標為高殘差，共 ${high} 筆`
     : '依 |殘差| 由大到小排序';
@@ -526,10 +585,8 @@ function renderResiduals() {
   $('resid-toggle').textContent = state.showAllResiduals ? `只顯示前 ${RESIDUAL_ROWS} 筆` : `顯示全部 ${rows.length} 筆`;
 }
 
-// RMSE 變化：下降為好（▼ 綠），上升為差（▲ 紅）
+// RMSE 變化：▼ 下降、▲ 上升
 function setDelta(node, d, fmt) {
-  node.classList.remove('good', 'bad');
-  if (d) node.classList.add(d < 0 ? 'good' : 'bad');
   node.textContent = `${d < 0 ? '▼ ' : d > 0 ? '▲ ' : ''}${fmt(d)}`;
 }
 
@@ -546,6 +603,28 @@ async function copyEquation() {
 
 // ---------- 圖表 ----------
 
+// 比較模式的圖例：每個方法一個膠囊開關（核取方塊），兩張圖一起切換它的顯示（重畫後仍保留）
+function renderLegend(series) {
+  $('legend').hidden = !isCompare();
+  $('legend').replaceChildren(...series.map((m, d) => {
+    const box = el('input');
+    box.type = 'checkbox';
+    box.checked = !state.hidden.has(m);
+    box.addEventListener('change', () => {
+      if (box.checked) state.hidden.delete(m);
+      else state.hidden.add(m);
+      for (const c of Object.values(charts)) {
+        c.setDatasetVisibility(d, box.checked);
+        c.update();
+      }
+    });
+    const swatch = el('span', 'swatch', METHODS.find(x => x.key === m).glyph);
+    swatch.setAttribute('aria-hidden', 'true');
+    swatch.style.setProperty('--c', `var(${seriesVar(m)})`);
+    return el('label', 'chip-toggle', box, swatch, methodName(m));
+  }));
+}
+
 function drawCharts() {
   const { data, runs } = state.result;
   const css = getComputedStyle(document.documentElement);
@@ -560,33 +639,31 @@ function drawCharts() {
   const bestText = !compare ? `最佳 k = ${best.k}`
     : ties > 1 ? `最佳 k = ${best.k}（${ties} 個方法相同）`
     : `最佳：${methodName(best.method)} k = ${best.k}`;
-  const specs = [
-    { key: 'rmse', label: 'Test RMSE', fmt: fmtNum, below: true },
-    { key: 'r2', label: 'Test R²', fmt: v => v.toFixed(4), below: false },
-  ];
-  $('charts').classList.toggle('compare', compare);
+  renderLegend(series);
 
-  for (const { key, label, fmt, below } of specs) {
+  for (const [key, { label, fmt, below }] of Object.entries(METRICS)) {
     charts[key]?.destroy();
+    // 單一方法：珊瑚色線、最佳點為實心大圓點；比較模式：各方法用系列色 + 不同點形狀
     const datasets = series.map((m, d) => {
-      const c = color(compare ? `--series-${METHODS.findIndex(x => x.key === m) + 1}` : '--series-1');
+      const c = color(compare ? seriesVar(m) : '--accent');
       const isBest = i => d === bestSeries && i === bestIdx;
+      const shape = compare ? METHODS.find(x => x.key === m).point : 'circle';
       return {
         label: compare ? methodName(m) : label,
         data: labels.map(k => stepOf(m, k)?.[key] ?? null),
+        hidden: compare && state.hidden.has(m),
         borderColor: c,
         backgroundColor: c,
         borderWidth: 2,
-        borderCapStyle: 'round',
-        borderJoinStyle: 'round',
-        pointRadius: labels.map((_, i) => (isBest(i) ? 6 : compare ? 3 : 4)),
+        cubicInterpolationMode: 'monotone',
+        // 最佳點一律畫實心圓（✕、+ 形狀沒有填色，畫不出外框效果）
+        pointStyle: labels.map((_, i) => (isBest(i) ? 'circle' : shape)),
+        pointRadius: labels.map((_, i) => (isBest(i) ? 7 : compare ? 3.5 : 4)),
         pointHoverRadius: 7,
         pointHitRadius: 12,
-        // 比較模式的系列色已用到橘色，最佳點改用文字色外框標示
-        pointBackgroundColor: labels.map((_, i) => (isBest(i) && !compare ? color('--best') : c)),
-        pointBorderColor: labels.map((_, i) => color(isBest(i) && compare ? '--text' : '--surface')),
-        pointBorderWidth: 2,
-        pointHoverBorderWidth: 2,
+        pointBackgroundColor: labels.map((_, i) => (isBest(i) ? color('--solid') : c)),
+        pointBorderColor: labels.map((_, i) => (isBest(i) ? color('--inner') : c)),
+        pointBorderWidth: labels.map((_, i) => (isBest(i) ? 3 : 1.5)),
       };
     });
     charts[key] = new Chart($(`${key}-chart`), {
@@ -596,49 +673,27 @@ function drawCharts() {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        layout: { padding: { top: 28, right: 8 } },
+        layout: { padding: { top: 32, right: 8 } },
         interaction: { mode: 'index', intersect: false },
         onClick(evt, _, chart) {
-          if (compare && evt.y >= chart.legend.top) return; // 點的是圖例
           const mode = compare ? 'nearest' : 'index';
           const [hit] = chart.getElementsAtEventForMode(evt, mode, { intersect: false }, false);
           if (hit) select(series[hit.datasetIndex], hit.index + 1);
         },
         plugins: {
-          legend: {
-            display: compare,
-            position: 'bottom',
-            labels: {
-              color: color('--text-2'),
-              usePointStyle: true,
-              pointStyle: 'line',
-              boxWidth: 20,
-              padding: 12,
-              // 預設會拿點的外框色（背景色）畫圖例線條，改用系列色
-              generateLabels: chart => Chart.defaults.plugins.legend.labels.generateLabels(chart)
-                .map(l => ({ ...l, strokeStyle: chart.data.datasets[l.datasetIndex].borderColor, lineWidth: 2 })),
-            },
-            // 兩張圖一起切換顯示的方法
-            onClick(_, item) {
-              for (const c of Object.values(charts)) {
-                c.setDatasetVisibility(item.datasetIndex, !c.isDatasetVisible(item.datasetIndex));
-                c.update();
-              }
-            },
-          },
+          legend: { display: false },
           tooltip: {
-            backgroundColor: color('--surface'),
-            borderColor: color('--border-strong'),
-            borderWidth: 1,
-            cornerRadius: 8,
+            backgroundColor: color('--solid'),
+            cornerRadius: 12,
             padding: 10,
+            caretSize: 0,
             displayColors: compare,
             usePointStyle: true,
-            titleColor: color('--text-2'),
+            titleColor: color('--muted'),
             titleFont: { weight: 'normal' },
-            bodyColor: color('--text'),
-            bodyFont: { weight: '600', size: compare ? 13 : 14 },
-            footerColor: color('--text-2'),
+            bodyColor: color('--on-solid'),
+            bodyFont: { weight: '600', size: 12 },
+            footerColor: color('--muted'),
             footerFont: { weight: 'normal' },
             callbacks: {
               title: items => `k = ${items[0].label}`,
@@ -652,28 +707,29 @@ function drawCharts() {
         scales: {
           x: {
             title: { display: true, text: '特徵數 k', color: color('--text-2') },
-            grid: { color: color('--grid') },
-            border: { color: color('--axis') },
-            ticks: { color: color('--muted') },
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: color('--text-2') },
           },
           y: {
             grace: '15%',
-            grid: { color: color('--grid') },
-            border: { color: color('--axis') },
-            ticks: { color: color('--muted') },
+            grid: { color: color('--line') },
+            border: { display: false },
+            ticks: { color: color('--text-2'), padding: 8 },
           },
         },
       },
       plugins: [markers(bestSeries, bestIdx, bestText, below, {
         band: color('--accent-wash'),
-        crosshair: color('--axis'),
-        text: color('--text'),
+        crosshair: color('--line-2'),
+        pill: color('--solid'),
+        pillText: color('--on-solid'),
       })],
     });
   }
 }
 
-// 選取的 k 畫底色帶、滑鼠所在的 k 畫垂直線、最佳點加文字標籤
+// 選取的 k 畫圓角底色帶、滑鼠所在的 k 畫垂直線、最佳點加膠囊標籤
 // （最佳點在 RMSE 圖是最低點、在 R² 圖是最高點，below 讓標籤放在離開折線的那一側）
 function markers(bestSeries, bestIdx, text, below, colors) {
   const xOf = (chart, i) => chart.scales.x.getPixelForValue(i);
@@ -682,17 +738,20 @@ function markers(bestSeries, bestIdx, text, below, colors) {
     beforeDatasetsDraw(chart) {
       const { ctx, chartArea: a } = chart;
       const sel = state.sel.k - 1;
-      const w = Math.min(40, ((a.right - a.left) / chart.data.labels.length) * 0.6);
+      const w = Math.min(36, ((a.right - a.left) / chart.data.labels.length) * 0.7);
       ctx.save();
       const x0 = Math.max(a.left, xOf(chart, sel) - w / 2);
       const x1 = Math.min(a.right, xOf(chart, sel) + w / 2);
       ctx.fillStyle = colors.band;
-      ctx.fillRect(x0, a.top, x1 - x0, a.bottom - a.top);
+      ctx.beginPath();
+      ctx.roundRect(x0, a.top, x1 - x0, a.bottom - a.top, 10);
+      ctx.fill();
       const [hover] = chart.tooltip.getActiveElements();
       if (hover) {
         const x = Math.round(xOf(chart, hover.index)) + 0.5;
         ctx.strokeStyle = colors.crosshair;
         ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(x, a.top);
         ctx.lineTo(x, a.bottom);
@@ -705,13 +764,19 @@ function markers(bestSeries, bestIdx, text, below, colors) {
       const pt = chart.getDatasetMeta(bestSeries).data[bestIdx];
       const { ctx, chartArea: a } = chart;
       ctx.save();
-      ctx.fillStyle = colors.text;
-      ctx.font = `600 12px ${Chart.defaults.font.family}`;
-      ctx.textAlign = 'center';
+      ctx.font = `600 11px ${Chart.defaults.font.family}`;
+      const w = ctx.measureText(text).width + 20, h = 22;
       // 標籤靠近左右邊緣時往內移，避免被裁掉
-      const half = ctx.measureText(text).width / 2;
-      const x = Math.min(Math.max(pt.x, a.left + half), a.right - half);
-      ctx.fillText(text, x, below ? pt.y + 24 : pt.y - 14);
+      const x = Math.min(Math.max(pt.x - w / 2, a.left), a.right - w);
+      const y = below ? pt.y + 12 : pt.y - 12 - h;
+      ctx.fillStyle = colors.pill;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, h / 2);
+      ctx.fill();
+      ctx.fillStyle = colors.pillText;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
       ctx.restore();
     },
   };

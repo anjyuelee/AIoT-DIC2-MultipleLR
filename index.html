@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MLR 特徵選擇</title>
   <meta name="description" content="以五種特徵選擇方法建立多元線性回歸，比較不同特徵數 k 的測試集 RMSE 與 R²，並檢視係數檢定、殘差與即時預測。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
   <script>
     // 先套用上次選的主題，避免載入時閃一下
@@ -12,180 +15,247 @@
   </script>
 </head>
 <body>
-  <div class="wrap topbar">
-    <label class="preset-field">
-      <span>選擇題目</span>
-      <select id="preset"></select>
-    </label>
-    <button id="theme-toggle" class="icon-btn" type="button" aria-label="切換深色模式">
-      <svg class="moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-      <svg class="sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M1.5 12H4M20 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
-    </button>
-  </div>
-
-  <header class="wrap top">
-    <div>
-      <p class="eyebrow">Multiple Linear Regression</p>
-      <h1>多元線性回歸：特徵選擇</h1>
-      <p class="lead">以五種方法挑選特徵，觀察測試集 RMSE 與 R² 如何隨特徵數 k 變化，再檢視所選模型的係數檢定、殘差與即時預測。</p>
-    </div>
-  </header>
-
-  <main class="wrap">
-    <section class="card" aria-labelledby="settings-title">
-      <h2 id="settings-title" class="section-title">資料設定</h2>
-      <form id="load-form">
-        <label class="field-label" for="data-url">CSV 網址</label>
-        <div class="input-group">
-          <input id="data-url" type="url" required spellcheck="false" autocomplete="off">
-          <button id="load-btn" class="btn primary" type="submit">載入資料</button>
+  <div class="app">
+    <header class="band">
+      <div class="band-row">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">β</span>
+          <div>
+            <h1>MLR 特徵選擇</h1>
+            <p>多元線性回歸 Dashboard</p>
+          </div>
         </div>
-      </form>
-      <div class="param-row">
-        <label class="field wide">
-          <span class="field-label">預測目標（target）</span>
-          <select id="target" disabled></select>
-        </label>
-        <label class="field wide">
-          <span class="field-label">特徵選擇方法</span>
-          <select id="method"></select>
-        </label>
-        <label class="field">
-          <span class="field-label">測試集比例</span>
-          <span class="suffix"><input id="test-ratio" type="number" min="5" max="50" step="5" inputmode="numeric"><span>%</span></span>
-        </label>
-        <label class="field">
-          <span class="field-label">隨機種子（seed）</span>
-          <input id="seed" type="number" min="0" step="1" inputmode="numeric">
-        </label>
+        <div class="band-tools">
+          <label class="pill-field">
+            <span class="sr">題目</span>
+            <select id="preset"></select>
+          </label>
+          <form id="load-form" class="search-pill">
+            <span class="icon-circle" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            </span>
+            <label class="sr" for="data-url">CSV 網址</label>
+            <input id="data-url" type="url" required spellcheck="false" autocomplete="off" placeholder="貼上 CSV 網址…">
+            <button id="load-btn" class="btn-accent" type="submit">載入資料</button>
+          </form>
+          <button id="theme-toggle" class="icon-circle icon-btn" type="button" aria-label="切換深色模式">
+            <svg class="moon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            <svg class="sun" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2.5M12 20v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M1.5 12H4M20 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
+          </button>
+        </div>
       </div>
-      <div id="data-info" class="data-info" hidden>
-        <p id="data-counts" class="hint"></p>
-        <ul id="column-list" class="chips" aria-label="欄位與型別"></ul>
+
+      <div class="band-row band-hero">
+        <div class="band-left">
+          <div id="data-info" class="data-chip" hidden>
+            <span id="n-total" class="big-circle"></span>
+            <span class="data-chip-text"><b>筆有效資料</b><span id="n-features"></span></span>
+          </div>
+          <div class="param-pills" role="group" aria-label="模型設定">
+            <label class="pill-field"><span>目標</span><select id="target" disabled></select></label>
+            <label class="pill-field"><span>方法</span><select id="method"></select></label>
+            <label class="pill-field"><span>測試集</span><input id="test-ratio" type="number" min="5" max="50" step="5" inputmode="numeric"><span>%</span></label>
+            <label class="pill-field"><span>seed</span><input id="seed" type="number" min="0" step="1" inputmode="numeric"></label>
+          </div>
+        </div>
+        <div id="hero" class="hero" hidden>
+          <div>
+            <h2 id="model-title"></h2>
+            <p id="hero-sub"></p>
+          </div>
+          <button id="back-to-best" class="btn-accent" type="button" hidden></button>
+        </div>
       </div>
-    </section>
+    </header>
 
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
 
-    <div id="results" class="results" hidden>
-      <section class="card" aria-labelledby="model-title">
-        <div class="model-head">
-          <div>
-            <h2 id="model-title" class="model-title"></h2>
-            <p class="hint">最佳模型取 test RMSE 最低者。點選圖上的點或表格，可查看其他模型。</p>
+    <main id="results" class="bento" hidden>
+      <section class="card kpi a-test" aria-labelledby="kpi-test-label">
+        <div class="inner">
+          <div class="card-top">
+            <span class="icon-circle" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
+            <span class="pill-soft">測試集</span>
           </div>
-          <button id="back-to-best" class="btn ghost" type="button" hidden></button>
+          <p id="kpi-test-label" class="label">Test RMSE</p>
+          <p id="m-rmse" class="value-xl"></p>
+          <dl class="mini">
+            <div><dt>R²</dt><dd id="m-r2"></dd></div>
+            <div><dt>MAE</dt><dd id="m-mae"></dd></div>
+            <div><dt>n</dt><dd id="m-n-test"></dd></div>
+          </dl>
         </div>
-        <dl class="metrics">
-          <div><dt>Test RMSE</dt><dd id="m-rmse"></dd></div>
-          <div><dt>Test R²</dt><dd id="m-r2"></dd></div>
-          <div><dt>Test MAE</dt><dd id="m-mae"></dd></div>
-          <div><dt id="m-vs-all-label">RMSE 較全部特徵</dt><dd id="m-vs-all"></dd></div>
-          <div><dt>Adjusted R²<span class="dt-note">訓練集</span></dt><dd id="m-adj"></dd></div>
-          <div><dt>F 統計量<span class="dt-note">訓練集</span></dt><dd id="m-f"></dd></div>
-          <div><dt>使用特徵數</dt><dd id="m-k"></dd></div>
-        </dl>
-        <div class="equation-box">
-          <div class="equation-head">
-            <span class="field-label">回歸方程式（以訓練集 OLS 擬合）</span>
-            <button id="copy-eq" class="btn ghost small" type="button">複製</button>
+        <div class="card-foot">
+          <span id="m-vs-all-label" class="label"></span>
+          <span id="m-vs-all" class="accent-text"></span>
+        </div>
+      </section>
+
+      <section class="card kpi a-train" aria-labelledby="kpi-train-label">
+        <div class="inner">
+          <div class="card-top">
+            <span class="icon-circle" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M18 4H6l6 8-6 8h12"/></svg></span>
+            <span class="pill-soft">訓練集 OLS</span>
+          </div>
+          <p id="kpi-train-label" class="label">Adjusted R²</p>
+          <p id="m-adj" class="value-xl"></p>
+          <dl class="mini">
+            <div><dt>n</dt><dd id="m-n-train"></dd></div>
+            <div><dt>殘差自由度</dt><dd id="m-df"></dd></div>
+            <div><dt>σ̂</dt><dd id="m-sigma"></dd></div>
+          </dl>
+        </div>
+        <div class="card-foot">
+          <span class="label">F 統計量 <b id="m-f" class="foot-value"></b></span>
+          <span class="pill-line">Prob (F) <span id="m-fp"></span></span>
+        </div>
+      </section>
+
+      <section class="card center a-donut" aria-label="Test R²">
+        <div id="donut" class="donut" role="img"><span id="donut-value"></span><span class="donut-label">Test R²</span></div>
+      </section>
+
+      <section class="card a-dots" aria-labelledby="kpi-k-label">
+        <span class="icon-circle" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span>
+        <div>
+          <p id="m-k" class="value-lg"></p>
+          <p id="kpi-k-label" class="label">使用特徵數</p>
+        </div>
+        <div id="k-dots" class="dots" aria-hidden="true"></div>
+      </section>
+
+      <section class="card a-split" aria-labelledby="kpi-split-label">
+        <span class="icon-circle" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>
+        <div>
+          <p class="value-lg"><span id="split-train"></span><span class="slash"> / </span><span id="split-test"></span></p>
+          <p id="kpi-split-label" class="label">訓練 / 測試筆數</p>
+        </div>
+        <div class="split-bar" aria-hidden="true"><span id="split-bar"></span></div>
+        <p id="split-note" class="label"></p>
+      </section>
+
+      <section class="card a-chart" aria-label="Test RMSE 與 Test R² 隨特徵數 k 的變化">
+        <div id="legend" class="chips" role="group" aria-label="顯示的方法" hidden></div>
+        <div class="inner chart-inner">
+          <div class="chart-head"><h2>Test RMSE vs k</h2><span class="label">越低越好</span></div>
+          <div class="chart-box"><canvas id="rmse-chart" role="img" aria-label="Test RMSE 隨特徵數 k 變化的折線圖，數值見特徵表格"></canvas></div>
+        </div>
+        <div class="inner chart-inner">
+          <div class="chart-head"><h2>Test R² vs k</h2><span class="label">越高越好</span></div>
+          <div class="chart-box"><canvas id="r2-chart" role="img" aria-label="Test R² 隨特徵數 k 變化的折線圖，數值見特徵表格"></canvas></div>
+        </div>
+      </section>
+
+      <section class="card a-matrix" aria-labelledby="table-title">
+        <div class="card-head">
+          <h2 id="table-title"></h2>
+          <p id="table-hint" class="label"></p>
+        </div>
+        <div class="inner flush">
+          <div class="table-wrap">
+            <table id="steps" class="interactive">
+              <thead id="steps-head"></thead>
+              <tbody id="steps-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="label">點圖上的點或表格任一列即可查看該模型；◆ 為 test RMSE 最低的最佳模型。</p>
+      </section>
+
+      <section class="card a-predict" aria-labelledby="predict-title">
+        <div class="card-head">
+          <h2 id="predict-title">即時預測</h2>
+          <span class="pill-soft">滑桿範圍為訓練集</span>
+        </div>
+        <div class="inner">
+          <span id="predict-label" class="label"></span>
+          <output id="predict-value" class="value-xl" for="predict-inputs" aria-live="polite"></output>
+          <p id="predict-note" class="label"></p>
+        </div>
+        <div id="predict-inputs" class="predict-inputs"></div>
+      </section>
+
+      <section class="card a-coef" aria-labelledby="coef-title">
+        <div class="card-head">
+          <h2 id="coef-title">參數估計</h2>
+          <span class="pill-soft">訓練集 OLS</span>
+        </div>
+        <div class="inner">
+          <div class="eq-head">
+            <span class="label">回歸方程式</span>
+            <button id="copy-eq" class="btn-pill" type="button">複製</button>
           </div>
           <p id="equation" class="equation"></p>
         </div>
-      </section>
-
-      <div id="charts" class="charts">
-        <figure class="card chart-card">
-          <figcaption><span class="chart-title">Test RMSE vs k</span><span class="hint">越低越好</span></figcaption>
-          <div class="chart-box"><canvas id="rmse-chart" role="img" aria-label="Test RMSE 隨特徵數 k 變化的折線圖，數值見下方表格"></canvas></div>
-        </figure>
-        <figure class="card chart-card">
-          <figcaption><span class="chart-title">Test R² vs k</span><span class="hint">越高越好</span></figcaption>
-          <div class="chart-box"><canvas id="r2-chart" role="img" aria-label="Test R² 隨特徵數 k 變化的折線圖，數值見下方表格"></canvas></div>
-        </figure>
-      </div>
-
-      <section class="card table-card" aria-labelledby="table-title">
-        <div class="table-head">
-          <h2 id="table-title" class="section-title"></h2>
-          <p id="table-hint" class="hint"></p>
-        </div>
-        <div class="table-wrap">
-          <table class="interactive">
-            <thead id="steps-head"></thead>
-            <tbody id="steps-body"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="card table-card" aria-labelledby="coef-title">
-        <div class="table-head">
-          <h2 id="coef-title" class="section-title">係數估計（訓練集 OLS）</h2>
-          <p id="coef-note" class="hint"></p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">變數</th>
-                <th scope="col" class="num">估計值</th>
-                <th scope="col" class="num">標準誤</th>
-                <th scope="col" class="num">t 值</th>
-                <th scope="col" class="num">p-value</th>
-                <th scope="col" class="num">95% 信賴區間</th>
-                <th scope="col" class="num">VIF</th>
-              </tr>
-            </thead>
-            <tbody id="coef-body"></tbody>
-          </table>
-        </div>
-        <p class="hint table-foot">*** p &lt; 0.001、** p &lt; 0.01、* p &lt; 0.05。VIF ≥ 5 表示與其他特徵的共線性偏高。</p>
-      </section>
-
-      <section class="card" aria-labelledby="predict-title">
-        <h2 id="predict-title" class="section-title">即時預測</h2>
-        <p class="hint">輸入欄位依目前模型用到的特徵產生，滑桿範圍為訓練集的最小值到最大值。</p>
-        <div class="predict-grid">
-          <div id="predict-inputs" class="predict-inputs"></div>
-          <div class="predict-output">
-            <span id="predict-label" class="field-label"></span>
-            <output id="predict-value" class="predict-value" for="predict-inputs" aria-live="polite"></output>
-            <p id="predict-note" class="hint"></p>
+        <div class="inner flush">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">變數</th>
+                  <th scope="col" class="num">估計值</th>
+                  <th scope="col" class="num">標準誤</th>
+                  <th scope="col" class="num">t 值</th>
+                  <th scope="col" class="num">p-value</th>
+                  <th scope="col" class="num">95% 信賴區間</th>
+                  <th scope="col" class="num">VIF</th>
+                </tr>
+              </thead>
+              <tbody id="coef-body"></tbody>
+            </table>
           </div>
         </div>
+        <p class="label">*** p &lt; 0.001、** p &lt; 0.01、* p &lt; 0.05。VIF ≥ 5 表示與其他特徵的共線性偏高。</p>
       </section>
 
-      <section class="card table-card" aria-labelledby="resid-title">
-        <div class="table-head">
-          <h2 id="resid-title" class="section-title">測試集殘差</h2>
-          <p id="resid-note" class="hint"></p>
+      <section class="card a-resid" aria-labelledby="resid-title">
+        <div class="card-head">
+          <h2 id="resid-title">測試集殘差</h2>
+          <span id="resid-count" class="pill-accent" hidden></span>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col" class="num">排名</th>
-                <th scope="col">資料列</th>
-                <th scope="col" class="num">實際值</th>
-                <th scope="col" class="num">預測值</th>
-                <th scope="col" class="num">殘差</th>
-                <th scope="col" class="num">% 誤差</th>
-                <th scope="col">狀態</th>
-              </tr>
-            </thead>
-            <tbody id="resid-body"></tbody>
-          </table>
+        <div class="inner">
+          <div id="resid-strip" class="strip" role="img"></div>
+          <p id="resid-note" class="label"></p>
         </div>
-        <div class="table-foot"><button id="resid-toggle" class="btn ghost small" type="button"></button></div>
+        <div class="inner flush">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col" class="num">排名</th>
+                  <th scope="col">資料列</th>
+                  <th scope="col" class="num">實際值</th>
+                  <th scope="col" class="num">預測值</th>
+                  <th scope="col" class="num">殘差</th>
+                  <th scope="col" class="num">% 誤差</th>
+                  <th scope="col">狀態</th>
+                </tr>
+              </thead>
+              <tbody id="resid-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card-actions"><button id="resid-toggle" class="btn-pill" type="button"></button></div>
+      </section>
+    </main>
+
+    <footer class="notes">
+      <section class="card n-cols" aria-labelledby="cols-title">
+        <div class="card-head">
+          <h2 id="cols-title">欄位與型別</h2>
+          <span id="column-count" class="pill-soft"></span>
+        </div>
+        <p id="data-counts" class="label"></p>
+        <ul id="column-list" class="chips"></ul>
       </section>
 
-      <details class="card method">
-        <summary>方法說明</summary>
-        <ol>
-          <li><b>讀取資料：</b>略過含缺值的列；整欄都是數字的視為數值特徵，其餘視為類別。</li>
-          <li><b>One-hot：</b>類別依字母排序，丟掉第一個作為基準類別（drop first），避免與截距共線。</li>
-          <li><b>切分：</b>以固定 seed（mulberry32 + Fisher–Yates 洗牌）打亂後，依比例切出測試集，筆數無條件進位。</li>
-          <li><b>特徵選擇（只用訓練集）：</b>先剔除與前面欄位線性相依的特徵，再以下列方法產生 k = 1…p 的特徵子集：
+      <section class="card n-method" aria-labelledby="method-title">
+        <div class="card-head"><h2 id="method-title">方法說明</h2></div>
+        <ol class="steps-list">
+          <li><b>讀取資料</b>略過含缺值的列；整欄都是數字的視為數值特徵，其餘視為類別。</li>
+          <li><b>One-hot</b>類別依字母排序，丟掉第一個作為基準類別（drop first），避免與截距共線。</li>
+          <li><b>切分</b>以固定 seed（mulberry32 + Fisher–Yates 洗牌）打亂後，依比例切出測試集，筆數無條件進位。</li>
+          <li><b>特徵選擇（只用訓練集）</b>先剔除與前面欄位線性相依的特徵，再以下列方法產生 k = 1…p 的特徵子集：
             <ul>
               <li><b>Forward SFS：</b>從只有截距開始，每一步加入讓訓練集 RSS 最小的特徵。</li>
               <li><b>RFE（Backward）：</b>從全部特徵開始，每次刪掉標準化係數絕對值最小的特徵。</li>
@@ -194,33 +264,34 @@
               <li><b>Exhaustive：</b>每個 k 列舉所有組合，取訓練集 RSS 最小者（特徵超過 15 個時停用）。</li>
             </ul>
           </li>
-          <li><b>評估：</b>每個子集以 OLS（含截距）在訓練集擬合，在測試集計算 RMSE、R²、MAE；test RMSE 最低者為最佳模型。</li>
-          <li><b>統計推論：</b>係數表、Adjusted R² 與 F 檢定都是訓練集 OLS 的結果（同 statsmodels）；VIF = 1 / (1 − R²ⱼ)，R²ⱼ 為該特徵對其餘特徵回歸的 R²。</li>
+          <li><b>評估</b>每個子集以 OLS（含截距）在訓練集擬合，在測試集計算 RMSE、R²、MAE；test RMSE 最低者為最佳模型。</li>
+          <li><b>統計推論</b>參數估計、Adjusted R² 與 F 檢定都是訓練集 OLS 的結果（同 statsmodels）；VIF = 1 / (1 − R²ⱼ)，R²ⱼ 為該特徵對其餘特徵回歸的 R²。</li>
         </ol>
-        <p class="hint">註：最佳模型是依測試集挑出的，嚴謹的做法是另留驗證集或使用交叉驗證。</p>
-      </details>
-    </div>
-  </main>
+        <p class="label">註：最佳模型是依測試集挑出的，嚴謹的做法是另留驗證集或使用交叉驗證。</p>
+      </section>
 
-  <footer class="wrap footer">
-    <section aria-labelledby="crisp-title">
-      <h2 id="crisp-title" class="footer-title">CRISP-DM 流程</h2>
-      <ol class="crisp">
-        <li><b>商業理解</b>確立要預測的目標（target）與成功標準：測試集 RMSE 越低越好。</li>
-        <li><b>資料理解</b>讀取 CSV，檢視筆數、欄位型別與缺值（見「資料設定」）。</li>
-        <li><b>資料準備</b>略過缺值列、類別欄 one-hot（drop first），以固定 seed 切分訓練集與測試集。</li>
-        <li><b>建模</b>以五種方法挑出 k = 1…p 的特徵子集，各自在訓練集以 OLS 擬合。</li>
-        <li><b>評估</b>比較測試集 RMSE、R²、MAE，並檢查係數顯著性、VIF 與測試集殘差。</li>
-        <li><b>部署</b>以純前端靜態網頁發布（可部署到 GitHub Pages），用即時預測器套用模型。</li>
-      </ol>
-    </section>
-    <section aria-labelledby="source-title">
-      <h2 id="source-title" class="footer-title">資料來源</h2>
-      <p>目前資料：<a id="source-link" target="_blank" rel="noopener"></a><span id="source-credit"></span></p>
-      <p>功能參考：<a href="https://huanchen1107.github.io/AIoT-DIC2-MultipleLR/" target="_blank" rel="noopener">50 Startups Multiple Linear Regression Explorer</a></p>
-      <p>所有計算都在瀏覽器內完成。</p>
-    </section>
-  </footer>
+      <section class="card n-crisp" aria-labelledby="crisp-title">
+        <div class="card-head"><h2 id="crisp-title">CRISP-DM 流程</h2></div>
+        <ol class="timeline">
+          <li><b>商業理解</b><span>確立要預測的目標（target）與成功標準：測試集 RMSE 越低越好。</span></li>
+          <li><b>資料理解</b><span>讀取 CSV，檢視筆數、欄位型別與缺值（見「欄位與型別」）。</span></li>
+          <li><b>資料準備</b><span>略過缺值列、類別欄 one-hot（drop first），以固定 seed 切分訓練集與測試集。</span></li>
+          <li><b>建模</b><span>以五種方法挑出 k = 1…p 的特徵子集，各自在訓練集以 OLS 擬合。</span></li>
+          <li><b>評估</b><span>比較測試集 RMSE、R²、MAE，並檢查係數顯著性、VIF 與測試集殘差。</span></li>
+          <li><b>部署</b><span>以純前端靜態網頁發布（可部署到 GitHub Pages），用即時預測器套用模型。</span></li>
+        </ol>
+      </section>
+
+      <section class="card n-source" aria-labelledby="source-title">
+        <div class="card-head"><h2 id="source-title">資料來源</h2></div>
+        <div class="inner source-list">
+          <p><span class="label">目前資料</span><a id="source-link" target="_blank" rel="noopener"></a><span id="source-credit" class="label"></span></p>
+          <p><span class="label">功能參考</span><a href="https://huanchen1107.github.io/AIoT-DIC2-MultipleLR/" target="_blank" rel="noopener">50 Startups Multiple Linear Regression Explorer</a></p>
+        </div>
+        <p class="label">所有計算都在瀏覽器內完成。</p>
+      </section>
+    </footer>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="config.js"></script>
