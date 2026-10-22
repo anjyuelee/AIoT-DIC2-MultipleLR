@@ -173,7 +173,7 @@ input, select, button { font: inherit; color: inherit; }
 .pill-line { border: 1px solid var(--line-2); color: var(--text); }
 .pill-accent { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
 
-/* 膠囊型欄位：標籤 + select / input */
+/* 膠囊型欄位：標籤 + input */
 .pill-field {
   position: relative;
   display: inline-flex;
@@ -188,7 +188,7 @@ input, select, button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .pill-field > span { color: var(--text-2); }
-.pill-field select, .pill-field input {
+.pill-field input {
   min-width: 0;
   height: 100%;
   padding: 0;
@@ -197,11 +197,39 @@ input, select, button { font: inherit; color: inherit; }
   font-weight: 600;
   outline: none;
 }
-.pill-field select { max-width: 220px; padding-right: 18px; appearance: none; cursor: pointer; }
-.pill-field:has(select)::after { content: "▾"; position: absolute; right: 14px; font-size: 11px; color: var(--text-2); pointer-events: none; }
 .pill-field input { width: 3.5em; text-align: right; }
 .pill-field:focus-within { border-color: var(--accent); }
-.pill-field:has(select:disabled) { opacity: 0.6; }
+
+/* 膠囊分段按鈕：一組同名 radio，選項全部攤開，選中的是黑底；選項多時在容器內換行 */
+.seg {
+  display: inline-flex;
+  align-items: flex-start;
+  min-height: 40px;
+  padding: 3px;
+  border: 1px solid var(--line-2);
+  border-radius: 20px;
+  background: var(--inner);
+  font-size: 13px;
+}
+.seg-label { flex: none; display: flex; align-items: center; height: 32px; padding: 0 8px 0 11px; color: var(--text-2); white-space: nowrap; }
+.seg-options { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.seg-opt {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 999px;
+  color: var(--text-2);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.seg-opt:hover { background: var(--band); color: var(--text); }
+.seg-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.seg-opt:has(input:checked) { background: var(--solid); color: var(--on-solid); }
+.seg-opt:has(input:disabled) { background: none; color: var(--muted); cursor: not-allowed; }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ---------- 頁首 ---------- */
 .band { display: grid; gap: 22px; padding: 18px 22px 26px; background: var(--band); }
@@ -239,8 +267,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.25; }
 .search-pill:focus-within { border-color: var(--accent); }
 
 .band-hero { align-items: flex-end; }
-.band-left { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
-.data-chip { display: flex; align-items: center; gap: 12px; padding-right: 22px; border-right: 1px solid var(--line-2); }
+.data-chip { display: flex; align-items: center; gap: 12px; }
 .big-circle {
   display: grid;
   place-items: center;
@@ -255,14 +282,13 @@ h1 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.25; }
 .data-chip-text { display: grid; font-size: 13px; line-height: 1.35; }
 .data-chip-text b { font-weight: 600; }
 .data-chip-text span { color: var(--text-2); }
-.param-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.param-pills { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 10px; }
 /* 手機：題目與主題鈕同一列，CSV 網址自成一列 */
 @media (max-width: 640px) {
   .band { padding: 16px 14px 20px; }
   .band-tools { flex-basis: 100%; justify-content: flex-start; }
-  .band-tools > .pill-field { flex: 1; }
+  .band-tools > .seg { flex: 1; }
   .search-pill { order: 3; flex-basis: 100%; }
-  .data-chip { padding-right: 0; border-right: 0; }
 }
 
 .hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 12px 20px; max-width: 100%; }
@@ -548,15 +574,9 @@ tr.high td:nth-child(5) { color: var(--accent-ink); font-weight: 600; }
   min-height: 42px;
 }
 .predict-field .field-label { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.predict-field select {
-  width: 100%;
-  max-width: 260px;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
-  background: var(--inner);
-}
+.predict-field .seg-options { gap: 6px; padding: 4px 0; }
+.predict-field .seg-opt { border: 1px solid var(--line-2); }
+.predict-field .seg-opt:has(input:checked) { border-color: var(--solid); }
 .predict-row { display: flex; align-items: center; gap: 10px; }
 .predict-row input[type="range"] { flex: 1; min-width: 60px; height: 24px; margin: 0; accent-color: var(--accent); }
 .predict-row input[type="number"] {

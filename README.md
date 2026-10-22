@@ -7,6 +7,8 @@
 - **儲存庫網址**：https://github.com/anjyuelee/AIoT-DIC2-MultipleLR
 - **線上網址**：https://anjyuelee.github.io/AIoT-DIC2-MultipleLR/
 
+![Boston Housing 以 Forward SFS 選出 k = 11 的最佳模型：設定列、指標卡與 Test RMSE、Test R² 圖表](screenshots/overview.png)
+
 ## 作業內容
 
 用 50 Startups 與 Boston Housing 兩份資料做多元線性回歸。每種特徵選擇方法都會為 k = 1..p 各挑出一組特徵，以 OLS 擬合後比較測試集的 RMSE、R² 與 MAE，找出最佳的特徵組合。所有計算都在瀏覽器完成，沒有後端。
@@ -69,15 +71,23 @@ medv = 37.00 − 0.1004 × crim + 0.04195 × zn + 2.837 × chas − 20.46 × nox
 
 ## 頁面功能
 
-- **設定列**：切換題目、貼上自訂 CSV 網址，選擇預測目標、特徵選擇方法、測試集比例與亂數種子。
+- **設定列**：題目、預測目標與特徵選擇方法都以膠囊按鈕攤開，點一下就切換；也可以貼上自訂 CSV 網址，調整測試集比例與亂數種子。
 - **指標卡**：Test RMSE、R²、MAE 與全部特徵模型的差距；訓練集 Adjusted R²、殘差自由度、σ̂、F 檢定；R² 環圈圖、特徵使用數與訓練/測試切分。
 - **圖表**：Test RMSE vs k 與 Test R² vs k 左右並排，標出最佳 k，點選圖上的點即可切換模型。
 - **特徵矩陣**：每個 k 選到哪些特徵、和前一個 k 相比新加入哪個特徵。
 - **比較全部方法**：五種方法畫在同一張圖上，以顏色加標記形狀區分，可個別隱藏；表格列出每個方法在每個 k 的 RMSE 與 R²。
 - **參數估計**：係數、標準誤、t、p 值、95% 信賴區間與 VIF（同 statsmodels `OLS`），回歸式可一鍵複製。
-- **即時預測**：數值欄用滑桿、類別欄用下拉選單輸入，立即算出預測值，超出訓練範圍時提示外插。
+- **即時預測**：數值欄用滑桿、類別欄用膠囊按鈕輸入，立即算出預測值，超出訓練範圍時提示外插。
 - **測試集殘差**：殘差條碼圖與排序表，|殘差| > 2σ̂ 標為高殘差。
 - **淺色/深色主題**：預設跟隨系統，也可手動切換。
+
+**比較全部方法**（深色主題）：五種方法的 Test RMSE、Test R² 曲線，下方是各方法比較表與測試集殘差。
+
+![比較全部方法：五種方法的曲線、各方法比較表與測試集殘差](screenshots/compare.png)
+
+**參數估計與即時預測**（50 Startups，Forward SFS k = 5）：回歸式、係數推論表，以及數值欄滑桿與 State 膠囊按鈕。
+
+![50 Startups 的參數估計與即時預測](screenshots/startups.png)
 
 ## 本機執行
 
@@ -99,6 +109,7 @@ python3 -m http.server 8765
 | `regression.js` | 純計算：CSV 解析、one-hot、切分、QR 最小平方、五種特徵選擇方法、統計推論 |
 | `app.js` | 介面邏輯：載入資料、圖表、表格、選取連動、即時預測 |
 | `index.html`、`style.css` | 頁面結構與樣式 |
+| `screenshots/` | README 用的頁面截圖（1440px 寬） |
 | `.claude/skills/mlr-feature-selection/SKILL.md` | 完整規格與驗證方式 |
 
 ## 技術

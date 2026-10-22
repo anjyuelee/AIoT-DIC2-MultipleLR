@@ -31,14 +31,8 @@ document.fonts?.ready.then(() => {
 $('data-url').value = CONFIG.dataUrl;
 $('test-ratio').value = Math.round(CONFIG.testRatio * 100);
 $('seed').value = CONFIG.seed;
-$('preset').replaceChildren(
-  ...CONFIG.presets.map((p, i) => new Option(p.name, i)),
-  new Option('自訂 CSV 網址', 'custom'),
-);
-$('method').replaceChildren(
-  ...METHODS.map(m => new Option(m.name, m.key)),
-  new Option('比較全部方法', 'all'),
-);
+fillChoices('preset', [...CONFIG.presets.map((p, i) => [String(i), p.name]), ['custom', '自訂 CSV 網址']]);
+fillChoices('method', [...METHODS.map(m => [m.key, m.name]), ['all', '比較全部方法']], 'forward');
 
 $('load-form').addEventListener('submit', e => {
   e.preventDefault();
@@ -92,7 +86,7 @@ async function load(preferTarget) {
 
 // 選預設題目：帶入它的網址與 target 後重新載入；選「自訂」則交給使用者輸入網址
 function onPresetChange() {
-  const p = CONFIG.presets[$('preset').value];
+  const p = CONFIG.presets[choice('preset')];
   if (!p) {
     $('data-url').focus();
     $('data-url').select();
@@ -102,20 +96,19 @@ function onPresetChange() {
   load(p.target);
 }
 
-// 下拉選單跟著網址欄：網址屬於某個題目就選它，否則顯示「自訂」
+// 題目按鈕跟著網址欄：網址屬於某個題目就選它，否則選「自訂」
 function syncPreset() {
   const i = CONFIG.presets.findIndex(p => p.dataUrl === $('data-url').value.trim());
-  $('preset').value = i < 0 ? 'custom' : i;
+  setChoice('preset', i < 0 ? 'custom' : i);
 }
 
-// target 下拉只列數值欄；優先順序：題目指定的 target → 目前選擇 → CONFIG.target → 最後一個數值欄
+// target 只列數值欄；優先順序：題目指定的 target → 目前選擇 → CONFIG.target → 最後一個數值欄
 function fillTargets(header, rows, preferTarget) {
   const { isNum } = inspect(header, rows);
   const numeric = header.filter((_, c) => isNum[c]);
   if (!numeric.length) throw new Error('資料中沒有數值欄位可當預測目標。');
-  const current = [preferTarget, $('target').value, CONFIG.target].find(n => numeric.includes(n)) ?? numeric[numeric.length - 1];
-  $('target').replaceChildren(...numeric.map(n => new Option(n, n, false, n === current)));
-  $('target').disabled = false;
+  const current = [preferTarget, choice('target'), CONFIG.target].find(n => numeric.includes(n)) ?? numeric[numeric.length - 1];
+  fillChoices('target', numeric.map(n => [n, n]), current);
 }
 
 // 五種方法一次算完：切換方法或比較全部時不必重算
@@ -123,7 +116,7 @@ function analyze() {
   if (!state.rows) return;
   const ratio = readInt('test-ratio', 5, 50, Math.round(CONFIG.testRatio * 100)) / 100;
   const seed = readInt('seed', 0, 4294967295, CONFIG.seed);
-  const target = $('target').value;
+  const target = choice('target');
   try {
     const data = buildDataset(state.header, state.rows, target);
     const split = trainTestSplit(data.y.length, ratio, seed);
@@ -151,10 +144,10 @@ function analyze() {
 // 特徵太多時 Exhaustive 停用；原本選它就改回 Forward SFS
 function syncMethodOptions() {
   const ok = state.result.methods.includes('exhaustive');
-  const opt = $('method').querySelector('option[value="exhaustive"]');
-  opt.disabled = !ok;
-  opt.textContent = ok ? 'Exhaustive' : `Exhaustive（特徵超過 ${EXHAUSTIVE_MAX_P} 個時停用）`;
-  if (!ok && $('method').value === 'exhaustive') $('method').value = 'forward';
+  const input = $('method').querySelector('input[value="exhaustive"]');
+  input.disabled = !ok;
+  input.nextElementSibling.textContent = ok ? 'Exhaustive' : `Exhaustive（特徵超過 ${EXHAUSTIVE_MAX_P} 個時停用）`;
+  if (!ok && input.checked) setChoice('method', 'forward');
 }
 
 // 讀取整數輸入框，超出範圍就夾回並寫回輸入框
@@ -173,8 +166,8 @@ function onMethodChange() {
   drawCharts();
 }
 
-const isCompare = () => $('method').value === 'all';
-const modeMethods = () => (isCompare() ? state.result.methods : [$('method').value]);
+const isCompare = () => choice('method') === 'all';
+const modeMethods = () => (isCompare() ? state.result.methods : [choice('method')]);
 const methodName = key => METHODS.find(m => m.key === key).name;
 const seriesVar = key => `--series-${METHODS.findIndex(m => m.key === key) + 1}`;
 const stepOf = (method, k) => state.result.runs[method].steps.find(s => s.k === k);
@@ -213,7 +206,7 @@ function showModel(method, k) {
 
 function setBusy(busy) {
   $('load-btn').disabled = busy;
-  $('preset').disabled = busy;
+  for (const input of $('preset').querySelectorAll('input')) input.disabled = busy;
   $('load-btn').textContent = busy ? '載入中…' : '載入資料';
   $('results').classList.toggle('is-loading', busy);
   if (busy && $('results').hidden) setStatus('loading', '正在載入資料…');
@@ -347,7 +340,7 @@ function setHead(...cols) {
 // 特徵納入矩陣：列為 k、欄為特徵（依第一次被選入的順序排列），方塊標出每個 k 選到哪些特徵
 function renderStepsTable() {
   const { data, runs } = state.result;
-  const method = $('method').value;
+  const method = choice('method');
   const { steps, best } = runs[method];
   const order = [...new Set(steps.flatMap(s => s.features))];
   setHead(['k'], ['Test RMSE', 'num'], ['較上一步', 'num'], ['Test R²', 'num'], ...order.map(f => {
@@ -470,25 +463,28 @@ function renderCoefs() {
   }));
 }
 
-// 即時預測：模型用到的每個原始欄位一個輸入（數值用滑桿 + 數字框、類別用下拉）；輸入值在切換模型時保留
+// 即時預測：模型用到的每個原始欄位一個輸入（數值用滑桿 + 數字框、類別用膠囊按鈕）；輸入值在切換模型時保留
 function renderPredictor() {
   const { data, target, Xtr } = state.result;
   const used = new Set(state.model.features.map(f => data.sources[f].column));
   const encoded = new Map(data.encoded.map(e => [e.column, e]));
   $('predict-inputs').replaceChildren(...state.header.filter(h => used.has(h)).map((h, n) => {
     const id = `predict-${n}`;
-    const label = el('label', 'field-label', h);
-    label.htmlFor = id;
     const enc = encoded.get(h);
     if (enc) {
       if (!enc.levels.includes(state.inputs[h])) state.inputs[h] = enc.baseline;
-      const select = el('select');
-      select.id = id;
-      select.dataset.column = h;
-      select.append(...enc.levels.map(lv =>
-        new Option(lv === enc.baseline ? `${lv}（基準）` : lv, lv, false, lv === state.inputs[h])));
-      return el('div', 'predict-field', label, select);
+      const label = el('span', 'field-label', h);
+      label.id = `${id}-label`;
+      const group = el('div', 'seg-options');
+      group.id = id;
+      group.setAttribute('role', 'radiogroup');
+      group.setAttribute('aria-labelledby', label.id);
+      group.append(...enc.levels.map(lv => choiceChip(id, lv, lv === enc.baseline ? `${lv}（基準）` : lv, lv === state.inputs[h])));
+      for (const input of group.querySelectorAll('input')) input.dataset.column = h;
+      return el('div', 'predict-field', label, group);
     }
+    const label = el('label', 'field-label', h);
+    label.htmlFor = id;
     const vals = column(Xtr, data.sources.findIndex(s => s.column === h));
     const lo = Math.min(...vals), hi = Math.max(...vals);
     const step = sliderStep(vals, lo, hi);
@@ -522,7 +518,7 @@ function onPredictInput(e) {
   if (h == null) return;
   state.inputs[h] = e.target.value;
   if (e.target.value !== '') {
-    for (const node of $('predict-inputs').querySelectorAll('input')) {
+    for (const node of $('predict-inputs').querySelectorAll('input[type="range"], input[type="number"]')) {
       if (node !== e.target && node.dataset.column === h) node.value = e.target.value;
     }
   }
@@ -809,6 +805,25 @@ function updateThemeIcon() {
 }
 
 // ---------- 小工具 ----------
+
+// 膠囊分段按鈕：容器 id 同時是這組 radio 的 name，值就是選中那顆的 value
+function fillChoices(id, items, checked) {
+  $(id).replaceChildren(...items.map(([value, text]) => choiceChip(id, value, text, value === checked)));
+}
+
+function choiceChip(name, value, text, checked) {
+  const input = el('input');
+  Object.assign(input, { type: 'radio', name, value, checked });
+  return el('label', 'seg-opt', input, el('span', '', text));
+}
+
+function choice(id) {
+  return $(id).querySelector('input:checked')?.value ?? '';
+}
+
+function setChoice(id, value) {
+  for (const input of $(id).querySelectorAll('input')) input.checked = input.value === String(value);
+}
 
 function el(tag, className, ...children) {
   const node = document.createElement(tag);

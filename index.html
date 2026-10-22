@@ -26,10 +26,10 @@
           </div>
         </div>
         <div class="band-tools">
-          <label class="pill-field">
-            <span class="sr">題目</span>
-            <select id="preset"></select>
-          </label>
+          <div class="seg" role="radiogroup" aria-labelledby="preset-label">
+            <span id="preset-label" class="seg-label">題目</span>
+            <div id="preset" class="seg-options"></div>
+          </div>
           <form id="load-form" class="search-pill">
             <span class="icon-circle" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -45,18 +45,23 @@
         </div>
       </div>
 
+      <div class="param-pills" role="group" aria-label="模型設定">
+        <div class="seg" role="radiogroup" aria-labelledby="target-label">
+          <span id="target-label" class="seg-label">目標</span>
+          <div id="target" class="seg-options"></div>
+        </div>
+        <div class="seg" role="radiogroup" aria-labelledby="method-label">
+          <span id="method-label" class="seg-label">方法</span>
+          <div id="method" class="seg-options"></div>
+        </div>
+        <label class="pill-field"><span>測試集</span><input id="test-ratio" type="number" min="5" max="50" step="5" inputmode="numeric"><span>%</span></label>
+        <label class="pill-field"><span>seed</span><input id="seed" type="number" min="0" step="1" inputmode="numeric"></label>
+      </div>
+
       <div class="band-row band-hero">
-        <div class="band-left">
-          <div id="data-info" class="data-chip" hidden>
-            <span id="n-total" class="big-circle"></span>
-            <span class="data-chip-text"><b>筆有效資料</b><span id="n-features"></span></span>
-          </div>
-          <div class="param-pills" role="group" aria-label="模型設定">
-            <label class="pill-field"><span>目標</span><select id="target" disabled></select></label>
-            <label class="pill-field"><span>方法</span><select id="method"></select></label>
-            <label class="pill-field"><span>測試集</span><input id="test-ratio" type="number" min="5" max="50" step="5" inputmode="numeric"><span>%</span></label>
-            <label class="pill-field"><span>seed</span><input id="seed" type="number" min="0" step="1" inputmode="numeric"></label>
-          </div>
+        <div id="data-info" class="data-chip" hidden>
+          <span id="n-total" class="big-circle"></span>
+          <span class="data-chip-text"><b>筆有效資料</b><span id="n-features"></span></span>
         </div>
         <div id="hero" class="hero" hidden>
           <div>
